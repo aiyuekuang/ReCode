@@ -29,9 +29,6 @@ export async function activate(context: vscode.ExtensionContext) {
       await initWorkspace(folder);
     }
 
-    const config = vscode.workspace.getConfiguration('recode');
-    const enabled = config.get<boolean>('enabled', true);
-
     // 注册Webview Provider (显示所有工作区的变更)
     historyViewProvider = new HistoryViewProvider(
       context.extensionUri,
