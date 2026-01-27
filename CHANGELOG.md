@@ -13,5 +13,5 @@ All notable changes to this project will be documented in this file.
 - 恢复功能（撤销回滚）
 - 多工作区支持
 - 可配置的保留天数和最大记录数
-- 自动添加 `.codetimedb` 到 `.gitignore`
+- 自动添加 `.recode` 到 `.gitignore`
 - 延迟清理过期记录，避免影响启动性能

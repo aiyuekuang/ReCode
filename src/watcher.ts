@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { CodeTimeDB } from './database';
+import { ReCode } from './database';
 
 // 简单的gitignore解析器
 class GitIgnoreParser {
@@ -16,7 +16,7 @@ class GitIgnoreParser {
     const defaultIgnores = [
       'node_modules',
       '.git',
-      '.codetimedb',
+      '.recode',
       'dist',
       'build',
       '.next',
@@ -51,7 +51,7 @@ class GitIgnoreParser {
           this.addPattern(trimmed);
         }
       } catch (error) {
-        console.error('CodeTimeDB: Error reading .gitignore:', error);
+        console.error('ReCode: Error reading .gitignore:', error);
       }
     }
   }
@@ -112,7 +112,7 @@ export interface OperationContext {
 export class FileWatcher {
   private fileCache: Map<string, string> = new Map();
   private debounceTimers: Map<string, NodeJS.Timeout> = new Map();
-  private db: CodeTimeDB;
+  private db: ReCode;
   private workspaceRoot: string;
   private watcher: vscode.FileSystemWatcher | null = null;
   private enabled: boolean = true;
@@ -126,7 +126,7 @@ export class FileWatcher {
   // 操作上下文：标记当前操作类型，让 watcher 知道如何记录
   private pendingOperations: Map<string, OperationContext> = new Map();
 
-  constructor(workspaceRoot: string, db: CodeTimeDB) {
+  constructor(workspaceRoot: string, db: ReCode) {
     this.workspaceRoot = workspaceRoot;
     this.db = db;
     
@@ -184,7 +184,7 @@ export class FileWatcher {
           this.cacheFile(file.fsPath);
         }
       });
-      console.log(`CodeTimeDB: Cached ${this.fileCache.size} files`);
+      console.log(`ReCode: Cached ${this.fileCache.size} files`);
     });
   }
 
@@ -253,7 +253,7 @@ export class FileWatcher {
       clearTimeout(existingTimer);
     }
 
-    const config = vscode.workspace.getConfiguration('codetimedb');
+    const config = vscode.workspace.getConfiguration('recode');
     const debounceDelay = config.get<number>('debounceDelay', 2000);
 
     const timer = setTimeout(() => {
@@ -282,7 +282,7 @@ export class FileWatcher {
       // 如果配置了跳过记录（恢复操作），则只更新缓存
       if (ctx?.skipRecording) {
         this.fileCache.set(filePath, newContent);
-        console.log(`CodeTimeDB: Skipped recording for ${path.relative(this.workspaceRoot, filePath)} - restore`);
+        console.log(`ReCode: Skipped recording for ${path.relative(this.workspaceRoot, filePath)} - restore`);
         return;
       }
 
@@ -313,13 +313,13 @@ export class FileWatcher {
       this.fileCache.set(filePath, newContent);
 
       const typeLabel = operationType === 'rollback' ? ' [rollback]' : '';
-      console.log(`CodeTimeDB: Recorded change #${changeId} for ${relativePath}${typeLabel}`);
+      console.log(`ReCode: Recorded change #${changeId} for ${relativePath}${typeLabel}`);
       
       // 发送事件通知UI更新
-      vscode.commands.executeCommand('codetimedb.refreshView');
+      vscode.commands.executeCommand('recode.refreshView');
 
     } catch (error) {
-      console.error('CodeTimeDB: Error recording change:', error);
+      console.error('ReCode: Error recording change:', error);
     }
   }
 
@@ -336,7 +336,7 @@ export class FileWatcher {
 
     // 10秒后结束当前批次
     this.batchTimer = setTimeout(() => {
-      console.log(`CodeTimeDB: Batch ${this.currentBatchId} ended`);
+      console.log(`ReCode: Batch ${this.currentBatchId} ended`);
       this.currentBatchId = null;
       this.batchTimer = null;
     }, this.BATCH_TIMEOUT);

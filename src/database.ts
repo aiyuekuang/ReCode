@@ -21,13 +21,13 @@ export interface CodeChange {
   created_at: string;
 }
 
-export class CodeTimeDB {
+export class ReCode {
   private db: any;
   private dbPath: string;
   private SQL: any;
 
   constructor(workspaceRoot: string) {
-    const dbDir = path.join(workspaceRoot, '.codetimedb');
+    const dbDir = path.join(workspaceRoot, '.recode');
     this.dbPath = path.join(dbDir, 'changes.db');
 
     // 确保目录存在

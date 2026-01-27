@@ -1,6 +1,6 @@
-# CodeTimeDB - AI Code History Guard
+# ReCode - AI Code History Guard
 
-[![VS Code Marketplace](https://img.shields.io/badge/VS%20Code-Marketplace-blue)](https://marketplace.visualstudio.com/items?itemName=YOUR_PUBLISHER_ID.codetimedb)
+[![VS Code Marketplace](https://img.shields.io/badge/VS%20Code-Marketplace-blue)](https://marketplace.visualstudio.com/items?itemName=YOUR_PUBLISHER_ID.recode)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 自动追踪代码变更，一键回滚到任意版本。**专为 AI 编码场景设计。**
@@ -17,17 +17,17 @@
 
 ## 📥 安装
 
-在 VS Code 中搜索 `CodeTimeDB` 或直接安装：
+在 VS Code 中搜索 `ReCode` 或直接安装：
 
 ```bash
-ext install YOUR_PUBLISHER_ID.codetimedb
+ext install YOUR_PUBLISHER_ID.recode
 ```
 
-或者在 [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=YOUR_PUBLISHER_ID.codetimedb) 下载。
+或者在 [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=YOUR_PUBLISHER_ID.recode) 下载。
 
 ## 🚀 快速开始
 
-1. 安装插件后，左侧活动栏会出现 CodeTimeDB 图标
+1. 安装插件后，左侧活动栏会出现 ReCode 图标
 2. 点击图标打开变更历史面板
 3. 开始编辑代码，变更会自动记录
 4. 使用三种操作：
@@ -39,7 +39,7 @@ ext install YOUR_PUBLISHER_ID.codetimedb
 
 ### 核心概念
 
-CodeTimeDB 自动记录每次文件保存，创建一条变更记录：
+ReCode 自动记录每次文件保存,创建一条变更记录：
 
 ```
 时间线 →
@@ -133,26 +133,26 @@ v0 ──[修改1]──> v1 ──[修改2]──> v2 ──[修改3]──> v3
 
 ## ⚙️ 配置选项
 
-在 VS Code 设置中搜索 `codetimedb`:
+在 VS Code 设置中搜索 `recode`:
 
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
-| `codetimedb.enabled` | `true` | 启用/禁用自动追踪 |
-| `codetimedb.retentionDays` | `15` | 保留历史记录的天数 (1-365) |
-| `codetimedb.maxHistorySize` | `1000` | 最大保留记录数 |
-| `codetimedb.debounceDelay` | `2000` | 防抖延迟 (毫秒) |
+| `recode.enabled` | `true` | 启用/禁用自动追踪 |
+| `recode.retentionDays` | `15` | 保留历史记录的天数 (1-365) |
+| `recode.maxHistorySize` | `1000` | 最大保留记录数 |
+| `recode.debounceDelay` | `2000` | 防抖延迟 (毫秒) |
 
 ## 🔧 命令
 
 | 命令 | 说明 |
 |------|------|
-| `CodeTimeDB: Show History` | 显示变更历史面板 |
-| `CodeTimeDB: Enable Tracking` | 启用追踪 |
-| `CodeTimeDB: Disable Tracking` | 禁用追踪 |
+| `ReCode: Show History` | 显示变更历史面板 |
+| `ReCode: Enable Tracking` | 启用追踪 |
+| `ReCode: Disable Tracking` | 禁用追踪 |
 
 ## 📁 数据存储
 
-变更记录存储在项目根目录的 `.codetimedb/` 文件夹中：
+变更记录存储在项目根目录的 `.recode/` 文件夹中：
 - 自动添加到 `.gitignore`
 - 使用 SQLite 数据库
 - 只存储 diff，不存储完整文件副本
@@ -160,7 +160,7 @@ v0 ──[修改1]──> v1 ──[修改2]──> v2 ──[修改3]──> v3
 ## 🎯 使用场景
 
 ### AI 辅助编程
-当使用 Cursor、GitHub Copilot、ChatGPT 等 AI 工具时，AI 可能会对代码做大量修改。CodeTimeDB 会自动将这些批量修改分组，方便你一键回滚。
+当使用 Cursor、GitHub Copilot、ChatGPT 等 AI 工具时，AI 可能会对代码做大量修改。ReCode 会自动将这些批量修改分组，方便你一键回滚。
 
 ### 实验性修改
 尝试不同的实现方案时，随时可以回滚到之前的版本，无需手动备份。

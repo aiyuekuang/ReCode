@@ -1,21 +1,22 @@
 import * as vscode from 'vscode';
-import { CodeTimeDB, CodeChange } from './database';
+import { ReCode, CodeChange } from './database';
 import * as path from 'path';
 import * as fs from 'fs';
 
 interface WorkspaceInstance {
-  db: CodeTimeDB;
+  db: ReCode;
   watcher: any;
 }
 
 export class HistoryViewProvider implements vscode.WebviewViewProvider {
-  public static readonly viewType = 'codetimedb.historyView';
+  public static readonly viewType = 'recode.historyView';
   private _view?: vscode.WebviewView;
   private workspaceInstances: Map<string, WorkspaceInstance>;
   
   // 配置常量
   private static readonly REFRESH_DELAY_MS = 300;  // 文件系统同步延迟
   private static readonly DISPOSE_DELAY_MS = 100;  // 临时资源清理延迟
+  private static readonly MAX_HISTORY = 100;  // 最大历史记录数
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -46,6 +47,9 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           break;
         case 'confirmRollback':
           await this.executeRollback(data.targetChangeId);
+          break;
+        case 'batchRollback':
+          await this.handleBatchRollback(data.changeIds);
           break;
         case 'restore':
           await this.handleRestore(data.changeId);
@@ -89,7 +93,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
   /**
    * 在所有工作区中查找变更记录
    */
-  private findChange(changeId: number): { change: CodeChange; db: CodeTimeDB; root: string } | null {
+  private findChange(changeId: number): { change: CodeChange; db: ReCode; root: string } | null {
     for (const [root, instance] of this.workspaceInstances) {
       const change = instance.db.getChangeById(changeId);
       if (change) {
@@ -121,7 +125,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     const { change, db, root } = result;
     
     // 查找该文件在此之后的所有修改
-    const allChanges = db.getChangesByFile(change.file_path, 100);
+    const allChanges = db.getChangesByFile(change.file_path, HistoryViewProvider.MAX_HISTORY);
     const laterChanges = allChanges.filter(c => c.id >= changeId);
     
     // 通知webview显示回滚链路弹窗（不需要 reverse，保持从新到旧）
@@ -187,6 +191,113 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       vscode.window.showErrorMessage(`回滚失败: ${error}`);
     }
   }
+
+  /**
+   * 配置驱动：处理批量回滚
+   * @param changeIds 要回滚的变更记录 ID 数组
+   */
+  private async handleBatchRollback(changeIds: number[]) {
+    if (!changeIds || changeIds.length === 0) {
+      return;
+    }
+
+    // 1. 确认操作
+    const answer = await vscode.window.showWarningMessage(
+      `确定要批量回滚 ${changeIds.length} 个文件吗？此操作将回滚到选中的版本。`,
+      { modal: true },
+      '确定回滚'
+    );
+    
+    if (answer !== '确定回滚') {
+      return;
+    }
+
+    // 2. 收集所有变更记录，并按文件分组
+    const changesByFile = new Map<string, Array<{ change: CodeChange; db: ReCode; root: string }>>();
+    
+    for (const changeId of changeIds) {
+      const result = this.findChange(changeId);
+      if (!result) {
+        console.warn(`找不到变更记录 #${changeId}，跳过`);
+        continue;
+      }
+      
+      const { change } = result;
+      const fileKey = `${result.root}::${change.file_path}`;
+      
+      if (!changesByFile.has(fileKey)) {
+        changesByFile.set(fileKey, []);
+      }
+      changesByFile.get(fileKey)!.push(result);
+    }
+
+    // 3. 对每个文件，找到最旧的变更记录作为回滚目标
+    const rollbackTargets: Array<{ change: CodeChange; db: ReCode; root: string }> = [];
+    
+    for (const [, changes] of changesByFile) {
+      // 按 ID 排序（从旧到新）
+      changes.sort((a, b) => a.change.id - b.change.id);
+      // 取最旧的记录作为回滚目标
+      rollbackTargets.push(changes[0]);
+    }
+
+    // 4. 批量执行回滚
+    let successCount = 0;
+    let failCount = 0;
+    const batchId = `batch_${Date.now()}`;
+
+    for (const { change, db, root } of rollbackTargets) {
+      const instance = this.workspaceInstances.get(root);
+      if (!instance) {
+        console.error(`找不到工作区实例: ${root}`);
+        failCount++;
+        continue;
+      }
+
+      try {
+        const filePath = path.join(root, change.file_path);
+        const currentContent = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf-8') : '';
+        
+        // 创建回滚记录（配置驱动：带 batch_id）
+        const diff = this.generateSimpleDiff(currentContent, change.new_content);
+        const rollbackId = db.insertChange(
+          change.file_path,
+          currentContent,
+          change.new_content,
+          diff,
+          0,
+          0,
+          batchId,
+          'rollback',
+          change.id
+        );
+        
+        // 标记被覆盖的记录
+        db.markCoveredByRollback(change.file_path, rollbackId, change.id);
+        
+        // 修改文件（跳过 watcher 记录）
+        instance.watcher.setOperationContext(filePath, {
+          skipRecording: true
+        });
+        this.writeFileContent(filePath, change.new_content);
+        
+        successCount++;
+      } catch (error) {
+        console.error(`回滚失败 #${change.id}:`, error);
+        failCount++;
+      }
+    }
+
+    // 5. 显示结果
+    if (failCount === 0) {
+      vscode.window.showInformationMessage(`✅ 批量回滚成功：${successCount} 个文件`);
+    } else {
+      vscode.window.showWarningMessage(`批量回滚完成：成功 ${successCount} 个，失败 ${failCount} 个`);
+    }
+
+    // 等待文件系统更新后刷新
+    setTimeout(() => this.refresh(), HistoryViewProvider.REFRESH_DELAY_MS);
+  }
   
   // 简单的 diff 生成
   private generateSimpleDiff(oldContent: string, newContent: string): string {
@@ -251,17 +362,17 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     const { change } = result;
 
     // 创建临时文件来显示diff
-    const oldUri = vscode.Uri.parse(`codetimedb-old:${change.file_path}?id=${changeId}`);
-    const newUri = vscode.Uri.parse(`codetimedb-new:${change.file_path}?id=${changeId}`);
+    const oldUri = vscode.Uri.parse(`recode-old:${change.file_path}?id=${changeId}`);
+    const newUri = vscode.Uri.parse(`recode-new:${change.file_path}?id=${changeId}`);
 
     // 注册内容提供器
     const capturedChange = change; // 捕获引用避免闭包问题
     
-    const oldDisposable = vscode.workspace.registerTextDocumentContentProvider('codetimedb-old', {
+    const oldDisposable = vscode.workspace.registerTextDocumentContentProvider('recode-old', {
       provideTextDocumentContent: () => capturedChange.old_content
     });
 
-    const newDisposable = vscode.workspace.registerTextDocumentContentProvider('codetimedb-new', {
+    const newDisposable = vscode.workspace.registerTextDocumentContentProvider('recode-new', {
       provideTextDocumentContent: () => capturedChange.new_content
     });
 
@@ -366,7 +477,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; script-src 'unsafe-inline';">
-      <title>CodeTimeDB History</title>
+      <title>ReCode History</title>
       <link href="${codiconUri}" rel="stylesheet" />
       <style>
         * {
@@ -1020,6 +1131,44 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           display: block;
         }
         
+        /* 批量选择样式 */
+        .group-checkbox,
+        .file-checkbox {
+          margin-right: 8px;
+          cursor: pointer;
+          width: 16px;
+          height: 16px;
+          flex-shrink: 0;
+        }
+        
+        .group-checkbox {
+          margin-left: 4px;
+        }
+        
+        /* 半选状态 */
+        .group-checkbox:indeterminate {
+          opacity: 0.7;
+        }
+        
+        /* 选中行高亮 */
+        .file-row.selected {
+          background: rgba(14, 99, 156, 0.2);
+        }
+        
+        /* 批量回滚按钮 */
+        .batch-rollback-btn {
+          color: var(--vscode-errorForeground, #f48771) !important;
+        }
+        
+        .batch-rollback-btn:hover {
+          background: var(--vscode-inputValidation-errorBackground, rgba(244, 135, 113, 0.15)) !important;
+        }
+        
+        .batch-count {
+          margin-left: 4px;
+          font-weight: 600;
+        }
+        
       </style>
     </head>
     <body>
@@ -1029,6 +1178,10 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           <span>变更历史</span>
         </div>
         <div style="display: flex; gap: 4px;">
+          <button id="batchRollbackBtn" class="refresh-btn batch-rollback-btn" onclick="batchRollback()" title="批量回滚" style="display: none;">
+            <i class="codicon codicon-discard"></i>
+            <span class="batch-count">0</span>
+          </button>
           <button class="refresh-btn" onclick="clearHistory()" title="清空历史">
             <i class="codicon codicon-trash"></i>
           </button>
@@ -1069,12 +1222,19 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         return `
         <div class="group ${index > 2 ? 'collapsed' : ''}" data-group="${index}" data-workspaces="${wsNames.join(',')}">
           <div class="group-header" onclick="toggleGroup(${index})" title="点击展开/折叠">
+            ${group.changes.some((c: any) => !c.covered_by_rollback_id && c.operation_type !== 'rollback' && !c.isRollbackTarget) ? `
+              <input type="checkbox" class="group-checkbox" 
+                data-group-index="${index}"
+                onchange="toggleGroupSelection(this, ${index})"
+                onclick="event.stopPropagation()"
+                title="全选/取消本组">
+            ` : ''}
             <i class="codicon codicon-chevron-down toggle-icon"></i>
             <div class="group-time">
               <span>${group.timeLabel}</span>
               <span class="group-time-detail">${group.timeDetail}</span>
             </div>
-            ${group.isBatch ? `<span class="batch-badge"><i class="codicon codicon-multiple-windows"></i>批量</span>` : ''}
+            ${group.isBatch ? `<span class="batch-badge"><i class="codicon codicon-multiple-windows"></i></span>` : ''}
             <span class="group-summary">${group.changes.length} 个文件</span>
             <span class="group-stats">
               <span class="added">+${group.totalAdded}</span>
@@ -1092,8 +1252,17 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
                 rollbackedIds = change.rollbackedRecords.map((r: any) => r.id).join(',');
               }
               
+              // 配置：判断是否可选择（可回滚的记录）
+              const isSelectable = !change.covered_by_rollback_id && change.operation_type !== 'rollback' && !change.isRollbackTarget;
+              
               return `
-              <div class="file-row ${change.covered_by_rollback_id ? 'rolled-back' : ''}" data-workspace="${change.workspaceName}" data-change-id="${change.id}">
+              <div class="file-row ${change.covered_by_rollback_id ? 'rolled-back' : ''}" data-workspace="${change.workspaceName}" data-change-id="${change.id}" data-selectable="${isSelectable}">
+                ${isSelectable ? `
+                  <input type="checkbox" class="file-checkbox" 
+                    data-change-id="${change.id}"
+                    data-group-index="${index}"
+                    onchange="toggleFileSelection(this, ${change.id}, ${index})">
+                ` : ''}
                 <span class="change-id">#${change.id}</span>
                 ${this.workspaceInstances.size > 1 ? `<span class="workspace-tag">${change.workspaceName}</span>` : ''}
                 <div class="file-info">
@@ -1164,7 +1333,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         let currentTab = 'all';
         let rollbackData = null;
         
-        // 配置：CSS 选择器常量
+        // 配置：CSS 选择器常量（必须在 selectionState 之前定义）
         const SELECTORS = {
           FILE_ROW: '.file-row',
           GROUP: '.group',
@@ -1173,6 +1342,171 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           TOOLTIP: '#rollbackTooltip',
           MODAL: '#rollbackModal'
         };
+        
+        // 配置：批量选择状态管理
+        const selectionState = {
+          selectedIds: new Set(),  // 当前选中的 change ID 集合
+          
+          // 添加选中
+          add(changeId) {
+            this.selectedIds.add(changeId);
+            this.updateUI();
+          },
+          
+          // 移除选中
+          remove(changeId) {
+            this.selectedIds.delete(changeId);
+            this.updateUI();
+          },
+          
+          // 切换选中状态
+          toggle(changeId) {
+            if (this.selectedIds.has(changeId)) {
+              this.remove(changeId);
+            } else {
+              this.add(changeId);
+            }
+          },
+          
+          // 批量添加
+          addMultiple(changeIds) {
+            changeIds.forEach(id => this.selectedIds.add(id));
+            this.updateUI();
+          },
+          
+          // 批量移除
+          removeMultiple(changeIds) {
+            changeIds.forEach(id => this.selectedIds.delete(id));
+            this.updateUI();
+          },
+          
+          // 清空选中
+          clear() {
+            this.selectedIds.clear();
+            this.updateUI();
+          },
+          
+          // 获取选中数量
+          count() {
+            return this.selectedIds.size;
+          },
+          
+          // 判断是否选中
+          has(changeId) {
+            return this.selectedIds.has(changeId);
+          },
+          
+          // 更新 UI 显示
+          updateUI() {
+            // 1. 更新批量回滚按钮显示
+            const batchBtn = document.getElementById('batchRollbackBtn');
+            if (batchBtn) {
+              if (this.count() > 0) {
+                batchBtn.style.display = 'flex';
+                const countSpan = batchBtn.querySelector('.batch-count');
+                if (countSpan) {
+                  countSpan.textContent = this.count();
+                }
+              } else {
+                batchBtn.style.display = 'none';
+              }
+            }
+            
+            // 2. 更新文件行的选中样式
+            document.querySelectorAll(SELECTORS.FILE_ROW).forEach(row => {
+              const changeId = parseInt(row.getAttribute('data-change-id'));
+              if (this.has(changeId)) {
+                row.classList.add('selected');
+              } else {
+                row.classList.remove('selected');
+              }
+            });
+            
+            // 3. 更新所有组的 checkbox 状态（checked/indeterminate/unchecked）
+            document.querySelectorAll('.group-checkbox').forEach(groupCheckbox => {
+              const groupIndex = parseInt(groupCheckbox.getAttribute('data-group-index'));
+              this.updateGroupCheckboxState(groupIndex);
+            });
+          },
+          
+          // 更新组 checkbox 的状态（全选、半选、未选）
+          updateGroupCheckboxState(groupIndex) {
+            const groupCheckbox = document.querySelector('.group-checkbox[data-group-index="' + groupIndex + '"]');
+            if (!groupCheckbox) { return; }
+            
+            // 获取该组内所有可选择的文件
+            const group = document.querySelector('[data-group="' + groupIndex + '"]');
+            if (!group) { return; }
+            
+            const selectableRows = Array.from(group.querySelectorAll(SELECTORS.FILE_ROW + '[data-selectable="true"]'));
+            const selectedCount = selectableRows.filter(row => {
+              const changeId = parseInt(row.getAttribute('data-change-id'));
+              return this.has(changeId);
+            }).length;
+            
+            if (selectedCount === 0) {
+              // 未选：unchecked
+              groupCheckbox.checked = false;
+              groupCheckbox.indeterminate = false;
+            } else if (selectedCount === selectableRows.length) {
+              // 全选：checked
+              groupCheckbox.checked = true;
+              groupCheckbox.indeterminate = false;
+            } else {
+              // 半选：indeterminate
+              groupCheckbox.checked = false;
+              groupCheckbox.indeterminate = true;
+            }
+          }
+        };
+        
+        // 配置：切换单个文件的选中状态
+        function toggleFileSelection(checkbox, changeId, groupIndex) {
+          if (checkbox.checked) {
+            selectionState.add(changeId);
+          } else {
+            selectionState.remove(changeId);
+          }
+        }
+        
+        // 配置：切换组的全选/取消全选
+        function toggleGroupSelection(groupCheckbox, groupIndex) {
+          const group = document.querySelector('[data-group="' + groupIndex + '"]');
+          if (!group) { return; }
+          
+          // 获取该组内所有可选择的文件
+          const selector = SELECTORS.FILE_ROW + '[data-selectable="true"]';
+          const selectableRows = Array.from(group.querySelectorAll(selector));
+          const changeIds = selectableRows.map(row => parseInt(row.getAttribute('data-change-id')));
+          
+          if (groupCheckbox.checked) {
+            // 全选
+            selectionState.addMultiple(changeIds);
+            selectableRows.forEach(row => {
+              const checkbox = row.querySelector('.file-checkbox');
+              if (checkbox) { checkbox.checked = true; }
+            });
+          } else {
+            // 取消全选
+            selectionState.removeMultiple(changeIds);
+            selectableRows.forEach(row => {
+              const checkbox = row.querySelector('.file-checkbox');
+              if (checkbox) { checkbox.checked = false; }
+            });
+          }
+        }
+        
+        // 配置：执行批量回滚
+        function batchRollback() {
+          if (selectionState.count() === 0) {
+            return;
+          }
+          vscode.postMessage({
+            type: 'batchRollback',
+            changeIds: Array.from(selectionState.selectedIds)
+          });
+          selectionState.clear();
+        }
         
         // 监听来自扩展的消息
         window.addEventListener('message', event => {
@@ -1351,6 +1685,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           });
           closeModal();
         }
+        
       </script>
     </body>
     </html>`;

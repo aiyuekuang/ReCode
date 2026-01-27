@@ -1,6 +1,6 @@
-# Warp 项目说明（CodeTimeDB）
+# Warp 项目说明（ReCode）
 
-本仓库是 VS Code 扩展 **CodeTimeDB - AI Code History Guard** 的代码库。
+本仓库是 VS Code 扩展 **ReCode - AI Code History Guard** 的代码库。
 
 ## 开发约定：统一走“配置驱动开发技能”
 

@@ -86,7 +86,7 @@ metadata:
      - 时间：防抖时间、超时时间、保留天数等
      - 容量/限制：最大条数、批大小、阈值
      - 过滤范围：哪些文件/路径/模式需要纳入或排除
-   - 给出候选配置项名称，保持一致、可读（如 `codetimedb.debounceDelay`、`codetimedb.retentionDays`）。
+   - 给出候选配置项名称，保持一致、可读（如 `recode.debounceDelay`、`recode.retentionDays`）。
 
 3. **设计或扩展配置 schema**  
    - VS Code 项目：
@@ -122,7 +122,7 @@ metadata:
 - **示例 1：新增“暂停追踪”能力**  
   用户："想要在大项目里临时完全暂停历史追踪。"  
   助手：
-  - 提出一个布尔配置（例如 `codetimedb.enabled` 或新增专门开关）
+  - 提出一个布尔配置（例如 `recode.enabled` 或新增专门开关）
   - 在配置 schema 中增加该项，设置合理默认值
   - 在所有追踪逻辑入口尊重该配置，并在配置变化时动态启用/停用
 

@@ -1,13 +1,13 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { CodeTimeDB } from './database';
+import { ReCode } from './database';
 import { FileWatcher } from './watcher';
 import { HistoryViewProvider } from './historyView';
 
 // 支持多工作区
 interface WorkspaceInstance {
-  db: CodeTimeDB;
+  db: ReCode;
   watcher: FileWatcher;
 }
 
@@ -15,11 +15,11 @@ const workspaceInstances: Map<string, WorkspaceInstance> = new Map();
 let historyViewProvider: HistoryViewProvider;
 
 export async function activate(context: vscode.ExtensionContext) {
-  console.log('CodeTimeDB extension is now active!');
+  console.log('ReCode extension is now active!');
 
   const workspaceFolders = vscode.workspace.workspaceFolders;
   if (!workspaceFolders || workspaceFolders.length === 0) {
-    vscode.window.showWarningMessage('CodeTimeDB: 请打开一个工作区才能使用');
+    vscode.window.showWarningMessage('ReCode: 请打开一个工作区才能使用');
     return;
   }
 
@@ -29,7 +29,7 @@ export async function activate(context: vscode.ExtensionContext) {
       await initWorkspace(folder);
     }
 
-    const config = vscode.workspace.getConfiguration('codetimedb');
+    const config = vscode.workspace.getConfiguration('recode');
     const enabled = config.get<boolean>('enabled', true);
 
     // 注册Webview Provider (显示所有工作区的变更)
@@ -47,43 +47,43 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // 注册命令
     context.subscriptions.push(
-      vscode.commands.registerCommand('codetimedb.showHistory', () => {
-        vscode.commands.executeCommand('codetimedb.historyView.focus');
+      vscode.commands.registerCommand('recode.showHistory', () => {
+        vscode.commands.executeCommand('recode.historyView.focus');
       })
     );
 
     context.subscriptions.push(
-      vscode.commands.registerCommand('codetimedb.enable', () => {
+      vscode.commands.registerCommand('recode.enable', () => {
         workspaceInstances.forEach(instance => {
           instance.watcher.start();
           instance.watcher.setEnabled(true);
         });
         vscode.workspace
-          .getConfiguration('codetimedb')
+          .getConfiguration('recode')
           .update('enabled', true, vscode.ConfigurationTarget.Workspace);
       })
     );
 
     context.subscriptions.push(
-      vscode.commands.registerCommand('codetimedb.disable', () => {
+      vscode.commands.registerCommand('recode.disable', () => {
         workspaceInstances.forEach(instance => {
           instance.watcher.setEnabled(false);
         });
         vscode.workspace
-          .getConfiguration('codetimedb')
+          .getConfiguration('recode')
           .update('enabled', false, vscode.ConfigurationTarget.Workspace);
       })
     );
 
     context.subscriptions.push(
-      vscode.commands.registerCommand('codetimedb.refreshView', () => {
+      vscode.commands.registerCommand('recode.refreshView', () => {
         historyViewProvider.refresh();
       })
     );
 
     // 注册清理历史记录命令
     context.subscriptions.push(
-      vscode.commands.registerCommand('codetimedb.clearHistory', async () => {
+      vscode.commands.registerCommand('recode.clearHistory', async () => {
         const answer = await vscode.window.showWarningMessage(
           '确定要清空所有历史记录吗？此操作不可恢复！',
           { modal: true },
@@ -103,7 +103,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // 延迟清理过期记录，避免影响启动性能
     setTimeout(() => {
-      const currentConfig = vscode.workspace.getConfiguration('codetimedb');
+      const currentConfig = vscode.workspace.getConfiguration('recode');
       const retentionDays = currentConfig.get<number>('retentionDays', 15);
       const maxHistorySize = currentConfig.get<number>('maxHistorySize', 1000);
       let totalDeleted = 0;
@@ -112,16 +112,16 @@ export async function activate(context: vscode.ExtensionContext) {
         instance.db.cleanup(maxHistorySize);
       });
       if (totalDeleted > 0) {
-        console.log(`CodeTimeDB: Cleaned up ${totalDeleted} records older than ${retentionDays} days`);
+        console.log(`ReCode: Cleaned up ${totalDeleted} records older than ${retentionDays} days`);
       }
     }, 30 * 1000); // 30秒后执行
 
     // 监听配置变化
     context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration((e) => {
-        if (e.affectsConfiguration('codetimedb.enabled')) {
+        if (e.affectsConfiguration('recode.enabled')) {
           const newEnabled = vscode.workspace
-            .getConfiguration('codetimedb')
+            .getConfiguration('recode')
             .get<boolean>('enabled', true);
           workspaceInstances.forEach(instance => {
             instance.watcher.setEnabled(newEnabled);
@@ -129,9 +129,9 @@ export async function activate(context: vscode.ExtensionContext) {
         }
         
         // 监听保留天数变化，立即执行清理
-        if (e.affectsConfiguration('codetimedb.retentionDays')) {
+        if (e.affectsConfiguration('recode.retentionDays')) {
           const newRetentionDays = vscode.workspace
-            .getConfiguration('codetimedb')
+            .getConfiguration('recode')
             .get<number>('retentionDays', 15);
           let deleted = 0;
           workspaceInstances.forEach(instance => {
@@ -150,7 +150,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // 添加新工作区
         for (const folder of e.added) {
           await initWorkspace(folder);
-          console.log(`CodeTimeDB: Added workspace ${folder.name}`);
+          console.log(`ReCode: Added workspace ${folder.name}`);
         }
 
         // 移除工作区
@@ -160,7 +160,7 @@ export async function activate(context: vscode.ExtensionContext) {
             instance.watcher.stop();
             instance.db.close();
             workspaceInstances.delete(folder.uri.fsPath);
-            console.log(`CodeTimeDB: Removed workspace ${folder.name}`);
+            console.log(`ReCode: Removed workspace ${folder.name}`);
           }
         }
 
@@ -169,25 +169,25 @@ export async function activate(context: vscode.ExtensionContext) {
     );
 
   } catch (error) {
-    vscode.window.showErrorMessage(`CodeTimeDB 初始化失败: ${error}`);
-    console.error('CodeTimeDB activation error:', error);
+    vscode.window.showErrorMessage(`ReCode 初始化失败: ${error}`);
+    console.error('ReCode activation error:', error);
   }
 }
 
 async function initWorkspace(folder: vscode.WorkspaceFolder) {
   const workspaceRoot = folder.uri.fsPath;
   
-  // 确保 .codetimedb 在 .gitignore 中
+  // 确保 .recode 在 .gitignore 中
   ensureGitignore(workspaceRoot);
   
   // 初始化数据库
-  const db = new CodeTimeDB(workspaceRoot);
+  const db = new ReCode(workspaceRoot);
   await db.init();
   
   // 初始化文件监控
   const watcher = new FileWatcher(workspaceRoot, db);
   
-  const config = vscode.workspace.getConfiguration('codetimedb');
+  const config = vscode.workspace.getConfiguration('recode');
   const enabled = config.get<boolean>('enabled', true);
   
   if (enabled) {
@@ -195,15 +195,15 @@ async function initWorkspace(folder: vscode.WorkspaceFolder) {
   }
   
   workspaceInstances.set(workspaceRoot, { db, watcher });
-  console.log(`CodeTimeDB: Initialized workspace ${folder.name}`);
+  console.log(`ReCode: Initialized workspace ${folder.name}`);
 }
 
 /**
- * 确保 .codetimedb 在 .gitignore 中
+ * 确保 .recode 在 .gitignore 中
  */
 function ensureGitignore(workspaceRoot: string) {
   const gitignorePath = path.join(workspaceRoot, '.gitignore');
-  const entry = '.codetimedb';
+  const entry = '.recode';
   
   try {
     let content = '';
@@ -218,14 +218,14 @@ function ensureGitignore(workspaceRoot: string) {
       }
     }
     
-    // 添加 .codetimedb 到 .gitignore
+    // 添加 .recode 到 .gitignore
     const separator = content && !content.endsWith('\n') ? '\n' : '';
-    const newContent = content + separator + '\n# CodeTimeDB local database\n' + entry + '\n';
+    const newContent = content + separator + '\n# ReCode local database\n' + entry + '\n';
     fs.writeFileSync(gitignorePath, newContent);
     
-    console.log('CodeTimeDB: Added .codetimedb to .gitignore');
+    console.log('ReCode: Added .recode to .gitignore');
   } catch (error) {
-    console.error('CodeTimeDB: Failed to update .gitignore:', error);
+    console.error('ReCode: Failed to update .gitignore:', error);
   }
 }
 
@@ -235,5 +235,5 @@ export function deactivate() {
     instance.db.close();
   });
   workspaceInstances.clear();
-  console.log('CodeTimeDB extension deactivated');
+  console.log('ReCode extension deactivated');
 }

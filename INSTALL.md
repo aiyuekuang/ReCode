@@ -11,7 +11,7 @@ VS Code插件的所有代码已经生成,现在需要安装依赖并测试。
 等网络恢复后,在项目目录执行:
 
 ```bash
-cd /Users/suconnect/Desktop/code/codetimedb-vscode
+cd /Users/suconnect/Desktop/code/recode-vscode
 yarn install
 ```
 
@@ -47,7 +47,7 @@ npm run compile
 3. 会打开一个新的VS Code窗口(Extension Development Host)
 4. 在新窗口中打开任意项目文件夹
 5. 查看左侧活动栏,应该能看到数据库图标
-6. 点击图标打开CodeTimeDB侧边栏
+6. 点击图标打开ReCode侧边栏
 
 ### 4. 测试功能
 
@@ -61,7 +61,7 @@ npm run compile
 ## 项目结构
 
 ```
-codetimedb-vscode/
+recode-vscode/
 ├── src/
 │   ├── extension.ts      # 插件入口
 │   ├── database.ts       # SQLite数据库操作
@@ -80,7 +80,7 @@ codetimedb-vscode/
 - 2秒防抖延迟(避免快速连续保存产生重复记录)
 
 ### 数据存储
-- 使用SQLite存储在 `.codetimedb/changes.db`
+- 使用SQLite存储在 `.recode/changes.db`
 - 记录完整的旧内容和新内容
 - 生成unified diff格式
 - 统计增删行数
@@ -103,7 +103,7 @@ npm install -g @vscode/vsce
 vsce package
 ```
 
-会生成 `codetimedb-0.1.0.vsix` 文件,可以直接安装到VS Code:
+会生成 `recode-0.1.0.vsix` 文件,可以直接安装到VS Code:
 
 ```
 Extensions -> 点击... -> Install from VSIX...
@@ -124,7 +124,7 @@ Extensions -> 点击... -> Install from VSIX...
 可以用SQLite客户端查看数据:
 
 ```bash
-sqlite3 .codetimedb/changes.db
+sqlite3 .recode/changes.db
 # 查看所有记录
 SELECT id, timestamp, file_path, lines_added, lines_removed FROM changes ORDER BY id DESC LIMIT 10;
 ```
@@ -136,7 +136,7 @@ A: 检查是否打开了工作区文件夹(不是单个文件)
 
 ### Q: 没有记录到变更?
 A: 
-1. 检查配置 `codetimedb.enabled` 是否为true
+1. 检查配置 `recode.enabled` 是否为true
 2. 确认修改的是代码文件(.ts/.js等)
 3. 查看控制台是否有错误
 

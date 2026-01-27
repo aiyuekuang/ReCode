@@ -1,18 +1,18 @@
 {
-  "name": "codetimedb",
-  "displayName": "CodeTimeDB - AI Code History Guard",
+  "name": "recode",
+  "displayName": "ReCode - AI Code History Guard",
   "description": "Track and rollback AI code changes automatically. Perfect for AI-assisted coding scenarios.",
   "version": "0.1.0",
   "publisher": "YOUR_PUBLISHER_ID",
   "icon": "images/icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/YOUR_USERNAME/codetimedb-vscode"
+    "url": "https://github.com/YOUR_USERNAME/recode-vscode"
   },
   "bugs": {
-    "url": "https://github.com/YOUR_USERNAME/codetimedb-vscode/issues"
+    "url": "https://github.com/YOUR_USERNAME/recode-vscode/issues"
   },
-  "homepage": "https://github.com/YOUR_USERNAME/codetimedb-vscode#readme",
+  "homepage": "https://github.com/YOUR_USERNAME/recode-vscode#readme",
   "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"
@@ -37,61 +37,61 @@
   "contributes": {
     "commands": [
       {
-        "command": "codetimedb.showHistory",
-        "title": "CodeTimeDB: Show History",
+        "command": "recode.showHistory",
+        "title": "ReCode: Show History",
         "icon": "$(history)"
       },
       {
-        "command": "codetimedb.enable",
-        "title": "CodeTimeDB: Enable Tracking"
+        "command": "recode.enable",
+        "title": "ReCode: Enable Tracking"
       },
       {
-        "command": "codetimedb.disable",
-        "title": "CodeTimeDB: Disable Tracking"
+        "command": "recode.disable",
+        "title": "ReCode: Disable Tracking"
       },
       {
-        "command": "codetimedb.clearHistory",
-        "title": "CodeTimeDB: Clear History",
+        "command": "recode.clearHistory",
+        "title": "ReCode: Clear History",
         "icon": "$(trash)"
       }
     ],
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "codetimedb-sidebar",
-          "title": "CodeTimeDB",
+          "id": "recode-sidebar",
+          "title": "ReCode",
           "icon": "$(database)"
         }
       ]
     },
     "views": {
-      "codetimedb-sidebar": [
+      "recode-sidebar": [
         {
           "type": "webview",
-          "id": "codetimedb.historyView",
+          "id": "recode.historyView",
           "name": "Change History"
         }
       ]
     },
     "configuration": {
-      "title": "CodeTimeDB",
+      "title": "ReCode",
       "properties": {
-        "codetimedb.enabled": {
+        "recode.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Enable automatic change tracking"
         },
-        "codetimedb.debounceDelay": {
+        "recode.debounceDelay": {
           "type": "number",
           "default": 2000,
           "description": "Debounce delay in milliseconds"
         },
-        "codetimedb.maxHistorySize": {
+        "recode.maxHistorySize": {
           "type": "number",
           "default": 1000,
           "description": "Maximum number of changes to keep"
         },
-        "codetimedb.retentionDays": {
+        "recode.retentionDays": {
           "type": "number",
           "default": 15,
           "minimum": 1,

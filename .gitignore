@@ -2,7 +2,7 @@ out/
 node_modules/
 .vscode-test/
 *.vsix
-.codetimedb/
+.recode/
 /.idea/
 /package-lock.json
 /yarn.lock
