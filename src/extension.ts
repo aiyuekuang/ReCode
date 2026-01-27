@@ -81,6 +81,26 @@ export async function activate(context: vscode.ExtensionContext) {
       })
     );
 
+    // 注册清理历史记录命令
+    context.subscriptions.push(
+      vscode.commands.registerCommand('codetimedb.clearHistory', async () => {
+        const answer = await vscode.window.showWarningMessage(
+          '确定要清空所有历史记录吗？此操作不可恢复！',
+          { modal: true },
+          '确定清空'
+        );
+        
+        if (answer === '确定清空') {
+          let totalDeleted = 0;
+          workspaceInstances.forEach(instance => {
+            totalDeleted += instance.db.clearAll();
+          });
+          historyViewProvider.refresh();
+          vscode.window.showInformationMessage(`已清空 ${totalDeleted} 条历史记录`);
+        }
+      })
+    );
+
     // 延迟清理过期记录，避免影响启动性能
     setTimeout(() => {
       const currentConfig = vscode.workspace.getConfiguration('codetimedb');

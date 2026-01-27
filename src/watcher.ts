@@ -102,6 +102,13 @@ class GitIgnoreParser {
   }
 }
 
+// 操作上下文：配置驱动的核心
+export interface OperationContext {
+  skipRecording: boolean;    // 是否跳过记录（恢复时使用）
+  operationType?: 'rollback'; // 操作类型（回滚时使用）
+  rollbackToId?: number;     // 回滚目标 ID
+}
+
 export class FileWatcher {
   private fileCache: Map<string, string> = new Map();
   private debounceTimers: Map<string, NodeJS.Timeout> = new Map();
@@ -115,6 +122,9 @@ export class FileWatcher {
   private currentBatchId: string | null = null;
   private batchTimer: NodeJS.Timeout | null = null;
   private readonly BATCH_TIMEOUT = 10000; // 10秒内的修改属于同一批次
+  
+  // 操作上下文：标记当前操作类型，让 watcher 知道如何记录
+  private pendingOperations: Map<string, OperationContext> = new Map();
 
   constructor(workspaceRoot: string, db: CodeTimeDB) {
     this.workspaceRoot = workspaceRoot;
@@ -146,6 +156,20 @@ export class FileWatcher {
 
   setEnabled(enabled: boolean) {
     this.enabled = enabled;
+  }
+
+  /**
+   * 设置操作上下文：在修改文件前调用，让 watcher 知道这是什么类型的操作
+   */
+  setOperationContext(filePath: string, context: OperationContext) {
+    this.pendingOperations.set(filePath, context);
+  }
+  
+  /**
+   * 清除操作上下文
+   */
+  clearOperationContext(filePath: string) {
+    this.pendingOperations.delete(filePath);
   }
 
   private initFileCache() {
@@ -247,11 +271,25 @@ export class FileWatcher {
 
       // 内容没变化则跳过
       if (oldContent === newContent) {
+        this.pendingOperations.delete(filePath);
         return;
       }
 
-      // 检查批次
-      const batchId = this.getCurrentBatchId();
+      // 获取操作上下文（配置驱动）
+      const ctx = this.pendingOperations.get(filePath);
+      this.pendingOperations.delete(filePath);
+      
+      // 如果配置了跳过记录（恢复操作），则只更新缓存
+      if (ctx?.skipRecording) {
+        this.fileCache.set(filePath, newContent);
+        console.log(`CodeTimeDB: Skipped recording for ${path.relative(this.workspaceRoot, filePath)} - restore`);
+        return;
+      }
+
+      // 检查批次（回滚操作不进入批次）
+      const batchId = ctx?.operationType === 'rollback' ? null : this.getCurrentBatchId();
+      const operationType = ctx?.operationType || 'edit';
+      const rollbackToId = ctx?.rollbackToId || null;
 
       // 生成 diff
       const diff = this.generateDiff(oldContent, newContent, filePath);
@@ -266,13 +304,16 @@ export class FileWatcher {
         diff,
         linesAdded,
         linesRemoved,
-        batchId
+        batchId,
+        operationType,
+        rollbackToId
       );
 
       // 更新缓存
       this.fileCache.set(filePath, newContent);
 
-      console.log(`CodeTimeDB: Recorded change #${changeId} for ${relativePath} [batch: ${batchId}]`);
+      const typeLabel = operationType === 'rollback' ? ' [rollback]' : '';
+      console.log(`CodeTimeDB: Recorded change #${changeId} for ${relativePath}${typeLabel}`);
       
       // 发送事件通知UI更新
       vscode.commands.executeCommand('codetimedb.refreshView');

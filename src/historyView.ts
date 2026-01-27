@@ -12,6 +12,10 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'codetimedb.historyView';
   private _view?: vscode.WebviewView;
   private workspaceInstances: Map<string, WorkspaceInstance>;
+  
+  // 配置常量
+  private static readonly REFRESH_DELAY_MS = 300;  // 文件系统同步延迟
+  private static readonly DISPOSE_DELAY_MS = 100;  // 临时资源清理延迟
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -41,7 +45,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           await this.handleRollback(data.changeId);
           break;
         case 'confirmRollback':
-          await this.executeRollback(data.changeIds);
+          await this.executeRollback(data.targetChangeId);
           break;
         case 'restore':
           await this.handleRestore(data.changeId);
@@ -52,6 +56,9 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         case 'refresh':
           this.refresh();
           break;
+        case 'clearHistory':
+          await this.handleClearHistory();
+          break;
       }
     });
   }
@@ -59,6 +66,23 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
   public refresh() {
     if (this._view) {
       this._view.webview.html = this._getHtmlForWebview(this._view.webview);
+    }
+  }
+
+  private async handleClearHistory() {
+    const answer = await vscode.window.showWarningMessage(
+      '确定要清空所有历史记录吗？此操作不可恢复！',
+      { modal: true },
+      '确定清空'
+    );
+    
+    if (answer === '确定清空') {
+      let totalDeleted = 0;
+      for (const [, instance] of this.workspaceInstances) {
+        totalDeleted += instance.db.clearAll();
+      }
+      this.refresh();
+      vscode.window.showInformationMessage(`已清空 ${totalDeleted} 条历史记录`);
     }
   }
 
@@ -100,73 +124,122 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     const allChanges = db.getChangesByFile(change.file_path, 100);
     const laterChanges = allChanges.filter(c => c.id >= changeId);
     
-    // 通知webview显示回滚链路弹窗
+    // 通知webview显示回滚链路弹窗（不需要 reverse，保持从新到旧）
     if (this._view) {
       this._view.webview.postMessage({
         type: 'showRollbackModal',
         targetChange: change,
-        laterChanges: laterChanges.reverse(), // 按时间正序
+        laterChanges: laterChanges, // 保持倒序（从新到旧）
         targetRoot: root
       });
     }
   }
 
-  private async executeRollback(changeIds: number[]) {
-    if (changeIds.length === 0) return;
-
-    const targetChangeId = Math.min(...changeIds);
+  private async executeRollback(targetChangeId: number) {
     const result = this.findChange(targetChangeId);
     
     if (!result) {
-      vscode.window.showErrorMessage(`找不到变更记录`);
+      vscode.window.showErrorMessage(`找不到变更记录 #${targetChangeId}`);
       return;
     }
 
-    const { change, root } = result;
+    const { change, db, root } = result;
+    const instance = this.workspaceInstances.get(root);
+    if (!instance) {
+      vscode.window.showErrorMessage('找不到工作区实例');
+      return;
+    }
 
     try {
       const filePath = path.join(root, change.file_path);
-      const fileExisted = fs.existsSync(filePath);
+      const currentContent = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf-8') : '';
       
-      this.writeFileContent(filePath, change.old_content);
+      // 配置驱动：先配置，再操作
+      // 1. 手动创建回滚记录（不经过 watcher）
+      const diff = this.generateSimpleDiff(currentContent, change.new_content);
+      const rollbackId = db.insertChange(
+        change.file_path,
+        currentContent,
+        change.new_content,
+        diff,
+        0,
+        0,
+        null,
+        'rollback',
+        targetChangeId
+      );
       
-      const message = fileExisted 
-        ? `✅ 已回滚 ${change.file_path}`
-        : `✅ 已恢复已删除的文件 ${change.file_path}`;
-      vscode.window.showInformationMessage(message);
+      // 2. 立即标记被覆盖的记录（配置驱动）
+      const affectedCount = db.markCoveredByRollback(change.file_path, rollbackId, targetChangeId);
+      console.log(`Created rollback record #${rollbackId}, marked ${affectedCount} records as covered`);
       
-      setTimeout(() => this.refresh(), 500);
+      // 3. 修改文件（跳过 watcher 记录）
+      instance.watcher.setOperationContext(filePath, {
+        skipRecording: true
+      });
+      this.writeFileContent(filePath, change.new_content);
+      
+      vscode.window.showInformationMessage(`✅ 已回滚到 #${change.id} ${change.file_path}`);
+      
+      // 等待文件系统更新后刷新
+      setTimeout(() => this.refresh(), HistoryViewProvider.REFRESH_DELAY_MS);
     } catch (error) {
       vscode.window.showErrorMessage(`回滚失败: ${error}`);
     }
   }
+  
+  // 简单的 diff 生成
+  private generateSimpleDiff(oldContent: string, newContent: string): string {
+    const oldLines = oldContent.split('\n').length;
+    const newLines = newContent.split('\n').length;
+    return `@@ -1,${oldLines} +1,${newLines} @@`;
+  }
 
   private async handleRestore(changeId: number) {
     const result = this.findChange(changeId);
-    
     if (!result) {
       vscode.window.showErrorMessage(`找不到变更记录 #${changeId}`);
       return;
     }
 
-    const { change, root } = result;
+    const { change, db, root } = result;
+    if (change.operation_type !== 'rollback') {
+      vscode.window.showErrorMessage('此记录不是回滚操作');
+      return;
+    }
+
+    const instance = this.workspaceInstances.get(root);
+    if (!instance) {
+      vscode.window.showErrorMessage('找不到工作区实例');
+      return;
+    }
 
     try {
       const filePath = path.join(root, change.file_path);
-      const fileExisted = fs.existsSync(filePath);
       
+      // 1. 设置操作上下文：跳过记录（配置驱动）
+      instance.watcher.setOperationContext(filePath, {
+        skipRecording: true
+      });
+      
+      // 2. 恢复文件（watcher 跳过记录）
       this.writeFileContent(filePath, change.old_content);
       
-      const message = fileExisted 
-        ? `✅ 已恢复 ${change.file_path}`
-        : `✅ 已恢复已删除的文件 ${change.file_path}`;
-      vscode.window.showInformationMessage(message);
+      // 3. 清除被这个回滚记录覆盖的标记（配置驱动）
+      db.clearCoveredByRollback(changeId);
       
-      setTimeout(() => this.refresh(), 500);
+      // 4. 删除这条回滚记录
+      db.deleteChange(changeId);
+      
+      vscode.window.showInformationMessage(`✅ 已恢复到回滚前的状态`);
+      
+      setTimeout(() => this.refresh(), HistoryViewProvider.REFRESH_DELAY_MS);
     } catch (error) {
       vscode.window.showErrorMessage(`恢复失败: ${error}`);
+      instance.watcher.clearOperationContext(path.join(root, change.file_path));
     }
   }
+
 
   private async handleViewDiff(changeId: number) {
     const result = this.findChange(changeId);
@@ -204,7 +277,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     setTimeout(() => {
       oldDisposable.dispose();
       newDisposable.dispose();
-    }, 100);
+    }, HistoryViewProvider.DISPOSE_DELAY_MS);
   }
 
   private _getHtmlForWebview(webview: vscode.Webview) {
@@ -216,7 +289,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       totalChanges: number;
     }> = [];
 
-    const allChanges: Array<CodeChange & { workspaceName: string; isLatestForFile: boolean }> = [];
+    const allChanges: Array<CodeChange & { workspaceName: string; isLatestForFile: boolean; canRestore: boolean; isRollbackTarget: boolean; rollbackedRecords?: CodeChange[] }> = [];
     
     for (const [root, instance] of this.workspaceInstances) {
       const workspaceName = path.basename(root);
@@ -224,6 +297,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       
       // 计算每个文件的最新记录 ID
       const latestIdByFile = new Map<string, number>();
+      
       for (const change of changes) {
         const current = latestIdByFile.get(change.file_path);
         if (!current || change.id > current) {
@@ -231,11 +305,37 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         }
       }
       
-      const wsChanges = changes.map(change => ({
-        ...change,
-        workspaceName,
-        isLatestForFile: latestIdByFile.get(change.file_path) === change.id
-      }));
+      const wsChanges = changes.map(change => {
+        const isLatest = latestIdByFile.get(change.file_path) === change.id;
+        
+        // 如果这是一条回滚记录，但不是最新记录，说明后面有新的编辑，恢复已无意义
+        const canRestore = change.operation_type === 'rollback' && isLatest;
+        
+        // 判断是否是回滚目标：检查是否有回滚记录指向这个 ID
+        const isRollbackTarget = changes.some(c => 
+          c.operation_type === 'rollback' && 
+          c.rollback_to_id === change.id &&
+          c.file_path === change.file_path
+        );
+        
+        // 如果是回滚记录，找出被回滚的所有记录
+        let rollbackedRecords: CodeChange[] | undefined;
+        if (change.operation_type === 'rollback' && change.rollback_to_id) {
+          rollbackedRecords = changes.filter(c => 
+            c.file_path === change.file_path &&
+            c.covered_by_rollback_id === change.id
+          );
+        }
+        
+        return {
+          ...change,
+          workspaceName,
+          isLatestForFile: isLatest,
+          canRestore,  // 是否可以恢复
+          isRollbackTarget,  // 是否是回滚目标
+          rollbackedRecords  // 被这次回滚覆盖的记录
+        };
+      });
       
       workspaces.push({
         name: workspaceName,
@@ -313,11 +413,31 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           font-size: 13px;
           opacity: 0.8;
           transition: opacity 0.2s, background 0.2s;
+          position: relative;
         }
         
         .refresh-btn:hover {
           background: var(--vscode-toolbar-hoverBackground);
           opacity: 1;
+        }
+        
+        /* Header button tooltip */
+        .refresh-btn[title]:hover::after {
+          content: attr(title);
+          position: absolute;
+          top: calc(100% + 6px);
+          left: 50%;
+          transform: translateX(-50%);
+          padding: 4px 8px;
+          background: var(--vscode-editorHoverWidget-background);
+          border: 1px solid var(--vscode-editorHoverWidget-border);
+          color: var(--vscode-editorHoverWidget-foreground);
+          font-size: 11px;
+          white-space: nowrap;
+          border-radius: 3px;
+          z-index: 10000;
+          pointer-events: none;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
         }
         
         .content-area {
@@ -339,6 +459,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           cursor: pointer;
           user-select: none;
           transition: background 0.15s;
+          position: relative;
         }
         
         .group-header:hover {
@@ -360,11 +481,39 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           opacity: 1;
         }
         
+        /* Group header tooltip */
+        .group-header[title]:hover::after {
+          content: attr(title);
+          position: absolute;
+          top: calc(100% + 4px);
+          left: 12px;
+          padding: 4px 8px;
+          background: var(--vscode-editorHoverWidget-background);
+          border: 1px solid var(--vscode-editorHoverWidget-border);
+          color: var(--vscode-editorHoverWidget-foreground);
+          font-size: 11px;
+          white-space: nowrap;
+          border-radius: 3px;
+          z-index: 10000;
+          pointer-events: none;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+        
         .group-time {
           font-weight: 500;
           margin-right: 12px;
           font-size: 12px;
           color: var(--vscode-foreground);
+          display: flex;
+          align-items: baseline;
+          gap: 6px;
+        }
+        
+        .group-time-detail {
+          font-size: 10px;
+          font-weight: 400;
+          color: var(--vscode-descriptionForeground);
+          opacity: 0.8;
         }
         
         .batch-badge {
@@ -406,7 +555,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           align-items: center;
           padding: 6px 12px 6px 32px;
           border-top: 1px solid var(--vscode-panel-border);
-          transition: background 0.1s;
+          transition: background 0.1s, opacity 0.2s;
         }
         
         .file-row:first-child {
@@ -415,6 +564,28 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         
         .file-row:hover {
           background: var(--vscode-list-hoverBackground);
+        }
+        
+        /* 被回滚覆盖的记录 */
+        .file-row.rolled-back {
+          opacity: 0.5;
+        }
+        
+        .file-row.rolled-back .file-path {
+          color: var(--vscode-descriptionForeground);
+          text-decoration: line-through;
+        }
+        
+        /* hover 回滚图标时高亮被回滚的记录 */
+        .file-row.highlight-rollbacked {
+          background: rgba(255, 200, 0, 0.15) !important;
+          transition: background 0.2s ease;
+        }
+        
+        /* hover 时高亮分组头部 */
+        .group-header.highlight-rollbacked {
+          background: rgba(255, 200, 0, 0.15) !important;
+          transition: background 0.2s ease;
         }
         
         .file-info {
@@ -470,10 +641,29 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           font-size: 11px;
           white-space: nowrap;
           transition: background 0.1s;
+          position: relative;
         }
         
         .btn:hover {
           background: var(--vscode-button-secondaryHoverBackground);
+        }
+        
+        /* 通用 tooltip 样式 */
+        .btn[title]:hover::after {
+          content: attr(title);
+          position: absolute;
+          bottom: calc(100% + 6px);
+          right: 0;
+          padding: 4px 8px;
+          background: var(--vscode-editorHoverWidget-background);
+          border: 1px solid var(--vscode-editorHoverWidget-border);
+          color: var(--vscode-editorHoverWidget-foreground);
+          font-size: 11px;
+          white-space: nowrap;
+          border-radius: 3px;
+          z-index: 10000;
+          pointer-events: none;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
         }
         
         .btn-danger {
@@ -484,13 +674,6 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           background: var(--vscode-inputValidation-errorBackground, rgba(244, 135, 113, 0.15));
         }
         
-        .btn-restore {
-          color: var(--vscode-gitDecoration-addedResourceForeground, #4ec9b0);
-        }
-        
-        .btn-restore:hover {
-          background: rgba(78, 201, 176, 0.15);
-        }
         
         .empty {
           padding: 48px 24px;
@@ -556,6 +739,26 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           opacity: 0.7;
           transition: opacity 0.2s, background 0.2s;
           border-bottom: 2px solid transparent;
+          position: relative;
+        }
+        
+        /* Tab tooltip */
+        .tab[title]:hover::after {
+          content: attr(title);
+          position: absolute;
+          top: calc(100% + 8px);
+          left: 50%;
+          transform: translateX(-50%);
+          padding: 4px 8px;
+          background: var(--vscode-editorHoverWidget-background);
+          border: 1px solid var(--vscode-editorHoverWidget-border);
+          color: var(--vscode-editorHoverWidget-foreground);
+          font-size: 11px;
+          white-space: nowrap;
+          border-radius: 3px;
+          z-index: 10000;
+          pointer-events: none;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
         }
         
         .tab:hover {
@@ -700,10 +903,12 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           align-items: center;
           gap: 10px;
           transition: background 0.15s, border-color 0.15s;
+          cursor: pointer;
         }
         
         .chain-item:hover {
           background: var(--vscode-list-hoverBackground);
+          border-color: var(--vscode-focusBorder);
         }
         
         .chain-item::before {
@@ -725,10 +930,6 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           height: 10px;
         }
         
-        .chain-item input[type="checkbox"] {
-          margin: 0;
-          cursor: pointer;
-        }
         
         .chain-item-info {
           flex: 1;
@@ -785,58 +986,40 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           background: var(--vscode-button-hoverBackground);
         }
         
-        .select-actions {
-          margin-bottom: 12px;
-          display: flex;
-          gap: 6px;
+        /* 回滚信息图标 */
+        .rollback-info-icon {
+          color: var(--vscode-descriptionForeground);
+          margin-left: 6px;
+          cursor: help;
+          opacity: 0.7;
+          transition: opacity 0.2s;
         }
         
-        .select-actions button {
-          font-size: 11px;
-          padding: 4px 10px;
-          background: transparent;
-          color: var(--vscode-button-secondaryForeground);
-          border: 1px solid var(--vscode-button-border, var(--vscode-panel-border));
-          border-radius: 2px;
-          cursor: pointer;
-          transition: background 0.15s;
-        }
-        
-        .select-actions button:hover {
-          background: var(--vscode-button-secondaryHoverBackground);
-        }
-        
-        /* 自定义 Tooltip */
-        [data-tooltip] {
-          position: relative;
-        }
-        
-        [data-tooltip]::after {
-          content: attr(data-tooltip);
-          position: absolute;
-          bottom: 100%;
-          left: 50%;
-          transform: translateX(-50%);
-          padding: 4px 8px;
-          background: var(--vscode-editorWidget-background);
-          color: var(--vscode-editorWidget-foreground);
-          border: 1px solid var(--vscode-editorWidget-border);
-          border-radius: 4px;
-          font-size: 12px;
-          white-space: nowrap;
-          opacity: 0;
-          visibility: hidden;
-          transition: opacity 0.15s, visibility 0.15s;
-          z-index: 100;
-          pointer-events: none;
-          margin-bottom: 4px;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-        }
-        
-        [data-tooltip]:hover::after {
+        .rollback-info-icon:hover {
           opacity: 1;
-          visibility: visible;
         }
+        
+        /* Tooltip 容器 */
+        .rollback-tooltip {
+          position: fixed;
+          background: var(--vscode-editorHoverWidget-background);
+          border: 1px solid var(--vscode-editorHoverWidget-border);
+          color: var(--vscode-editorHoverWidget-foreground);
+          padding: 8px 12px;
+          border-radius: 4px;
+          font-size: 11px;
+          white-space: pre-line;
+          z-index: 1000;
+          pointer-events: none;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+          max-width: 300px;
+          display: none;
+        }
+        
+        .rollback-tooltip.show {
+          display: block;
+        }
+        
       </style>
     </head>
     <body>
@@ -845,20 +1028,25 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           <i class="codicon codicon-history"></i>
           <span>变更历史</span>
         </div>
-        <button class="refresh-btn" onclick="refresh()" title="刷新历史记录">
-          <i class="codicon codicon-refresh"></i>
-        </button>
+        <div style="display: flex; gap: 4px;">
+          <button class="refresh-btn" onclick="clearHistory()" title="清空历史">
+            <i class="codicon codicon-trash"></i>
+          </button>
+          <button class="refresh-btn" onclick="refresh()" title="刷新">
+            <i class="codicon codicon-refresh"></i>
+          </button>
+        </div>
       </div>
       
       ${showTabs ? `
         <div class="tabs-container">
-          <button class="tab active" onclick="switchTab('all')">
+          <button class="tab active" onclick="switchTab('all')" title="显示所有工作区的变更记录">
             <i class="codicon codicon-list-tree"></i>
             <span>全部</span>
             <span class="tab-count">${allChanges.length}</span>
           </button>
           ${workspaces.map(ws => `
-            <button class="tab" onclick="switchTab('${this.escapeHtml(ws.name)}')">
+            <button class="tab" onclick="switchTab('${this.escapeHtml(ws.name)}')" title="显示 ${this.escapeHtml(ws.name)} 的变更记录">
               <i class="codicon codicon-folder"></i>
               <span>${this.escapeHtml(ws.name)}</span>
               <span class="tab-count">${ws.totalChanges}</span>
@@ -880,9 +1068,12 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         const wsNames = [...new Set(group.changes.map((c: any) => c.workspaceName))];
         return `
         <div class="group ${index > 2 ? 'collapsed' : ''}" data-group="${index}" data-workspaces="${wsNames.join(',')}">
-          <div class="group-header" onclick="toggleGroup(${index})">
+          <div class="group-header" onclick="toggleGroup(${index})" title="点击展开/折叠">
             <i class="codicon codicon-chevron-down toggle-icon"></i>
-            <span class="group-time">${group.timeLabel}</span>
+            <div class="group-time">
+              <span>${group.timeLabel}</span>
+              <span class="group-time-detail">${group.timeDetail}</span>
+            </div>
             ${group.isBatch ? `<span class="batch-badge"><i class="codicon codicon-multiple-windows"></i>批量</span>` : ''}
             <span class="group-summary">${group.changes.length} 个文件</span>
             <span class="group-stats">
@@ -891,13 +1082,30 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
             </span>
           </div>
           <div class="group-content">
-            ${group.changes.map((change: any) => `
-              <div class="file-row" data-workspace="${change.workspaceName}">
+            ${group.changes.map((change: any) => {
+              // 生成 tooltip 内容和 ID 列表
+              let tooltipContent = '';
+              let rollbackedIds = '';
+              if (change.operation_type === 'rollback' && change.rollbackedRecords && change.rollbackedRecords.length > 0) {
+                tooltipContent = `回滚了 ${change.rollbackedRecords.length} 条记录:\n` +
+                  change.rollbackedRecords.map((r: any) => `#${r.id} (+${r.lines_added}/-${r.lines_removed})`).join('\n');
+                rollbackedIds = change.rollbackedRecords.map((r: any) => r.id).join(',');
+              }
+              
+              return `
+              <div class="file-row ${change.covered_by_rollback_id ? 'rolled-back' : ''}" data-workspace="${change.workspaceName}" data-change-id="${change.id}">
                 <span class="change-id">#${change.id}</span>
                 ${this.workspaceInstances.size > 1 ? `<span class="workspace-tag">${change.workspaceName}</span>` : ''}
                 <div class="file-info">
                   <i class="codicon codicon-file file-icon"></i>
                   <span class="file-path" title="${this.escapeHtml(change.file_path)}">${this.escapeHtml(change.file_path)}</span>
+                  ${change.operation_type === 'rollback' && tooltipContent ? `
+                    <i class="codicon codicon-info rollback-info-icon" 
+                       data-tooltip="${this.escapeHtml(tooltipContent)}"
+                       data-rollbacked-ids="${rollbackedIds}"
+                       onmouseenter="highlightRollbackedRecords(this)"
+                       onmouseleave="clearHighlightRollbackedRecords()"></i>
+                  ` : ''}
                 </div>
                 <span class="file-stats">
                   <span class="added">+${change.lines_added}</span>
@@ -907,21 +1115,26 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
                   <button class="btn" onclick="viewDiff(${change.id})" title="查看差异">
                     <i class="codicon codicon-diff"></i>
                   </button>
-                  ${change.isLatestForFile ? `
-                    <button class="btn btn-restore" onclick="restore(${change.id})" title="恢复：用此版本替换当前文件">
+                  ${change.canRestore ? `
+                    <button class="btn" onclick="restore(${change.id})" title="恢复回滚">
                       <i class="codicon codicon-debug-restart"></i>
                     </button>
+                  ` : !change.covered_by_rollback_id && change.operation_type !== 'rollback' && !change.isRollbackTarget ? `
+                    <button class="btn btn-danger" onclick="rollback(${change.id})" title="回滚到此版本">
+                      <i class="codicon codicon-discard"></i>
+                    </button>
                   ` : ''}
-                  <button class="btn btn-danger" onclick="rollback(${change.id})" title="回滚：撤销到此版本之前的状态">
-                    <i class="codicon codicon-discard"></i>
-                  </button>
                 </div>
               </div>
-            `).join('')}
+              `;
+            }).join('')}
           </div>
         </div>
       `}).join('')}
       </div>
+      
+      <!-- Tooltip -->
+      <div class="rollback-tooltip" id="rollbackTooltip"></div>
       
       <!-- 回滚弹窗 -->
       <div class="modal-overlay" id="rollbackModal">
@@ -937,10 +1150,6 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           </div>
           <div class="modal-body">
             <div class="rollback-info" id="rollbackInfo"></div>
-            <div class="select-actions">
-              <button onclick="selectAll()">全选</button>
-              <button onclick="selectNone()">全不选</button>
-            </div>
             <div class="rollback-chain" id="rollbackChain"></div>
           </div>
           <div class="modal-footer">
@@ -954,6 +1163,16 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         const vscode = acquireVsCodeApi();
         let currentTab = 'all';
         let rollbackData = null;
+        
+        // 配置：CSS 选择器常量
+        const SELECTORS = {
+          FILE_ROW: '.file-row',
+          GROUP: '.group',
+          GROUP_HEADER: '.group-header',
+          HIGHLIGHT_CLASS: 'highlight-rollbacked',
+          TOOLTIP: '#rollbackTooltip',
+          MODAL: '#rollbackModal'
+        };
         
         // 监听来自扩展的消息
         window.addEventListener('message', event => {
@@ -984,6 +1203,66 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         
         function refresh() {
           vscode.postMessage({ type: 'refresh' });
+        }
+        
+        function clearHistory() {
+          vscode.postMessage({ type: 'clearHistory' });
+        }
+        
+        // 配置驱动：hover 图标时高亮被回滚的记录 + 显示 tooltip
+        function highlightRollbackedRecords(iconElement, event) {
+          const rollbackedIds = iconElement.getAttribute('data-rollbacked-ids');
+          const tooltipText = iconElement.getAttribute('data-tooltip');
+          
+          // 1. 显示 tooltip
+          if (tooltipText) {
+            const tooltip = document.querySelector(SELECTORS.TOOLTIP);
+            tooltip.textContent = tooltipText;
+            tooltip.classList.add('show');
+            
+            // 定位 tooltip
+            const rect = iconElement.getBoundingClientRect();
+            tooltip.style.left = rect.left + 'px';
+            tooltip.style.top = (rect.top - tooltip.offsetHeight - 8) + 'px';
+          }
+          
+          // 2. 高亮被回滚的记录 + 它们所在的分组头部
+          if (rollbackedIds) {
+            const ids = rollbackedIds.split(',');
+            const highlightedGroups = new Set();  // 记录已高亮的分组
+            
+            ids.forEach(id => {
+              const row = document.querySelector(SELECTORS.FILE_ROW + '[data-change-id="' + id + '"]');
+              if (row) {
+                // 高亮记录
+                row.classList.add(SELECTORS.HIGHLIGHT_CLASS);
+                
+                // 找到这个 row 所在的 group 并高亮其 header
+                const group = row.closest(SELECTORS.GROUP);
+                if (group && !highlightedGroups.has(group)) {
+                  const header = group.querySelector(SELECTORS.GROUP_HEADER);
+                  if (header) {
+                    header.classList.add(SELECTORS.HIGHLIGHT_CLASS);
+                    highlightedGroups.add(group);
+                  }
+                }
+              }
+            });
+          }
+        }
+        
+        function clearHighlightRollbackedRecords() {
+          // 隐藏 tooltip
+          const tooltip = document.querySelector(SELECTORS.TOOLTIP);
+          tooltip.classList.remove('show');
+          
+          // 移除所有高亮样式（记录 + 分组头部）
+          document.querySelectorAll(SELECTORS.FILE_ROW + '.' + SELECTORS.HIGHLIGHT_CLASS).forEach(row => {
+            row.classList.remove(SELECTORS.HIGHLIGHT_CLASS);
+          });
+          document.querySelectorAll(SELECTORS.GROUP_HEADER + '.' + SELECTORS.HIGHLIGHT_CLASS).forEach(header => {
+            header.classList.remove(SELECTORS.HIGHLIGHT_CLASS);
+          });
         }
         
         function switchTab(tabName) {
@@ -1024,22 +1303,24 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         function showRollbackModal(targetChange, laterChanges) {
           rollbackData = { targetChange, laterChanges };
           
+          // 找到目标记录的索引
+          const targetIndex = laterChanges.findIndex(c => c.id === targetChange.id);
+          
           // 显示文件信息
           document.getElementById('rollbackInfo').innerHTML = 
             '文件: <strong>' + targetChange.file_path + '</strong><br>' +
-            '回滚到: #' + targetChange.id + ' 之前的版本<br>' +
-            '影响的变更: ' + laterChanges.length + ' 次';
+            '回滚到: <strong>#' + targetChange.id + '</strong> (' + new Date(targetChange.timestamp).toLocaleString('zh-CN') + ')<br>' +
+            '将被回滚的变更: <strong>' + targetIndex + '</strong> 次';
           
-          // 生成链路图
+          // 生成链路图（从新到旧，可点击查看 diff）
           const chainHtml = laterChanges.map((change, index) => {
-            const isTarget = index === 0;
+            const isTarget = change.id === targetChange.id;
             const time = new Date(change.timestamp).toLocaleString('zh-CN', {
               month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
             });
-            return '<div class="chain-item ' + (isTarget ? 'target' : '') + '">' +
-              '<input type="checkbox" id="cb_' + change.id + '" value="' + change.id + '" checked>' +
+            return '<div class="chain-item ' + (isTarget ? 'target' : '') + '" onclick="viewDiff(' + change.id + ')" title="点击查看差异">' +
               '<div class="chain-item-info">' +
-                '<div class="chain-item-id">#' + change.id + (isTarget ? ' (回滚目标)' : '') + '</div>' +
+                '<div class="chain-item-id">#' + change.id + (isTarget ? ' <span style="color: var(--vscode-errorForeground);">(回滚目标)</span>' : '') + '</div>' +
                 '<div class="chain-item-time">' + time + '</div>' +
               '</div>' +
               '<div class="chain-item-stats">' +
@@ -1058,29 +1339,16 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           rollbackData = null;
         }
         
-        function selectAll() {
-          document.querySelectorAll('#rollbackChain input[type="checkbox"]').forEach(cb => {
-            cb.checked = true;
-          });
-        }
-        
-        function selectNone() {
-          document.querySelectorAll('#rollbackChain input[type="checkbox"]').forEach(cb => {
-            cb.checked = false;
-          });
-        }
-        
         function confirmRollback() {
-          const selectedIds = [];
-          document.querySelectorAll('#rollbackChain input[type="checkbox"]:checked').forEach(cb => {
-            selectedIds.push(parseInt(cb.value));
-          });
-          
-          if (selectedIds.length === 0) {
+          if (!rollbackData) {
             return;
           }
           
-          vscode.postMessage({ type: 'confirmRollback', changeIds: selectedIds });
+          // 只传目标记录ID
+          vscode.postMessage({ 
+            type: 'confirmRollback', 
+            targetChangeId: rollbackData.targetChange.id 
+          });
           closeModal();
         }
       </script>
@@ -1091,6 +1359,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
   private groupChangesByTime(changes: CodeChange[]) {
     const groups: Array<{
       timeLabel: string;
+      timeDetail: string;
       changes: CodeChange[];
       totalAdded: number;
       totalRemoved: number;
@@ -1115,8 +1384,10 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     // 处理批次组
     for (const [, batchChanges] of batchMap) {
       const firstChange = batchChanges[0];
+      const { label, detail } = this.getTimeBucket(firstChange.timestamp);
       groups.push({
-        timeLabel: this.getTimeBucket(firstChange.timestamp),
+        timeLabel: label,
+        timeDetail: detail,
         changes: batchChanges,
         totalAdded: batchChanges.reduce((sum, c) => sum + c.lines_added, 0),
         totalRemoved: batchChanges.reduce((sum, c) => sum + c.lines_removed, 0),
@@ -1129,12 +1400,13 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     let currentTimeBucket = '';
 
     for (const change of noBatchChanges) {
-      const timeBucket = this.getTimeBucket(change.timestamp);
+      const { label, detail } = this.getTimeBucket(change.timestamp);
 
-      if (timeBucket !== currentTimeBucket) {
-        currentTimeBucket = timeBucket;
+      if (label !== currentTimeBucket) {
+        currentTimeBucket = label;
         currentGroup = {
-          timeLabel: timeBucket,
+          timeLabel: label,
+          timeDetail: detail,
           changes: [],
           totalAdded: 0,
           totalRemoved: 0,
@@ -1158,38 +1430,47 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     return groups;
   }
 
-  private getTimeBucket(isoString: string): string {
+  private getTimeBucket(isoString: string): { label: string; detail: string } {
     const date = new Date(isoString);
     const now = new Date();
     const diff = now.getTime() - date.getTime();
     const minutes = Math.floor(diff / 60000);
+    
+    // 详细时间（时:分:秒）
+    const timeDetail = date.toLocaleTimeString('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
 
+    let label: string;
     if (minutes < 5) {
-      return '刚才';
+      label = '刚才';
     } else if (minutes < 30) {
-      return `${Math.floor(minutes / 5) * 5}分钟前`;
+      label = `${Math.floor(minutes / 5) * 5}分钟前`;
     } else if (minutes < 120) {
-      return `${Math.floor(minutes / 30) * 30}分钟前`;
+      label = `${Math.floor(minutes / 30) * 30}分钟前`;
     } else {
       const hours = Math.floor(minutes / 60);
       if (hours < 24) {
-        return `${hours}小时前`;
+        label = `${hours}小时前`;
       } else {
         const days = Math.floor(hours / 24);
         if (days === 1) {
-          return '昨天';
+          label = '昨天';
         } else if (days < 7) {
-          return `${days}天前`;
+          label = `${days}天前`;
         } else {
-          return date.toLocaleDateString('zh-CN', {
+          label = date.toLocaleDateString('zh-CN', {
             month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit'
+            day: '2-digit'
           });
         }
       }
     }
+    
+    return { label, detail: timeDetail };
   }
 
   private escapeHtml(text: string): string {
