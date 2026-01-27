@@ -1,0 +1,113 @@
+{
+  "name": "codetimedb",
+  "displayName": "CodeTimeDB - AI Code History Guard",
+  "description": "Track and rollback AI code changes automatically. Perfect for AI-assisted coding scenarios.",
+  "version": "0.1.0",
+  "publisher": "YOUR_PUBLISHER_ID",
+  "icon": "images/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YOUR_USERNAME/codetimedb-vscode"
+  },
+  "bugs": {
+    "url": "https://github.com/YOUR_USERNAME/codetimedb-vscode/issues"
+  },
+  "homepage": "https://github.com/YOUR_USERNAME/codetimedb-vscode#readme",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "history",
+    "rollback",
+    "undo",
+    "AI",
+    "code changes",
+    "version control",
+    "backup"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "codetimedb.showHistory",
+        "title": "CodeTimeDB: Show History",
+        "icon": "$(history)"
+      },
+      {
+        "command": "codetimedb.enable",
+        "title": "CodeTimeDB: Enable Tracking"
+      },
+      {
+        "command": "codetimedb.disable",
+        "title": "CodeTimeDB: Disable Tracking"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "codetimedb-sidebar",
+          "title": "CodeTimeDB",
+          "icon": "$(database)"
+        }
+      ]
+    },
+    "views": {
+      "codetimedb-sidebar": [
+        {
+          "type": "webview",
+          "id": "codetimedb.historyView",
+          "name": "Change History"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "CodeTimeDB",
+      "properties": {
+        "codetimedb.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable automatic change tracking"
+        },
+        "codetimedb.debounceDelay": {
+          "type": "number",
+          "default": 2000,
+          "description": "Debounce delay in milliseconds"
+        },
+        "codetimedb.maxHistorySize": {
+          "type": "number",
+          "default": 1000,
+          "description": "Maximum number of changes to keep"
+        },
+        "codetimedb.retentionDays": {
+          "type": "number",
+          "default": 15,
+          "minimum": 1,
+          "maximum": 365,
+          "description": "Number of days to retain change history (1-365)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "@vscode/codicons": "^0.0.44",
+    "sql.js": "^1.10.3"
+  }
+}
