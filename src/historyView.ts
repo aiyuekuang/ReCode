@@ -805,6 +805,38 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         .select-actions button:hover {
           background: var(--vscode-button-secondaryHoverBackground);
         }
+        
+        /* 自定义 Tooltip */
+        [data-tooltip] {
+          position: relative;
+        }
+        
+        [data-tooltip]::after {
+          content: attr(data-tooltip);
+          position: absolute;
+          bottom: 100%;
+          left: 50%;
+          transform: translateX(-50%);
+          padding: 4px 8px;
+          background: var(--vscode-editorWidget-background);
+          color: var(--vscode-editorWidget-foreground);
+          border: 1px solid var(--vscode-editorWidget-border);
+          border-radius: 4px;
+          font-size: 12px;
+          white-space: nowrap;
+          opacity: 0;
+          visibility: hidden;
+          transition: opacity 0.15s, visibility 0.15s;
+          z-index: 100;
+          pointer-events: none;
+          margin-bottom: 4px;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        
+        [data-tooltip]:hover::after {
+          opacity: 1;
+          visibility: visible;
+        }
       </style>
     </head>
     <body>
