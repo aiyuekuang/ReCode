@@ -82,7 +82,8 @@ class GitIgnoreParser {
 
     // 判断是否为目录模式（不含通配符且不含扩展名，或显式目录标记）
     const hasWildcard = p.includes('*') || p.includes('?');
-    const hasExtension = /\.[a-zA-Z0-9]+$/.test(p);
+    // 扩展名必须在文件名中（即 . 前面有字符），排除以 . 开头的目录名如 .git, .vscode
+    const hasExtension = /[^/]\.\w+$/.test(p);
     const isLikelyDir = isExplicitDir || (!hasWildcard && !hasExtension);
 
     // 如果模式不以/开头,可以匹配任意深度
