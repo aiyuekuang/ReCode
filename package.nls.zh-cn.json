@@ -1,0 +1,15 @@
+{
+  "displayName": "ReCode - AI 代码历史守护者",
+  "description": "自动追踪代码变更，一键回滚到任意版本。专为 AI 编码场景设计。",
+  "command.showHistory": "ReCode: 显示历史记录",
+  "command.enable": "ReCode: 启用追踪",
+  "command.disable": "ReCode: 禁用追踪",
+  "command.clearHistory": "ReCode: 清空历史记录",
+  "viewsContainer.title": "ReCode",
+  "view.historyView.name": "变更历史",
+  "config.title": "ReCode",
+  "config.enabled.description": "启用/禁用自动变更追踪",
+  "config.debounceDelay.description": "防抖延迟（毫秒）",
+  "config.maxHistorySize.description": "最大保留记录数",
+  "config.retentionDays.description": "历史记录保留天数 (1-365)"
+}

@@ -74,19 +74,20 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
   }
 
   private async handleClearHistory() {
+    const confirmClearText = vscode.l10n.t('Confirm Clear');
     const answer = await vscode.window.showWarningMessage(
-      '确定要清空所有历史记录吗？此操作不可恢复！',
+      vscode.l10n.t('Are you sure you want to clear all history? This action cannot be undone!'),
       { modal: true },
-      '确定清空'
+      confirmClearText
     );
     
-    if (answer === '确定清空') {
+    if (answer === confirmClearText) {
       let totalDeleted = 0;
       for (const [, instance] of this.workspaceInstances) {
         totalDeleted += instance.db.clearAll();
       }
       this.refresh();
-      vscode.window.showInformationMessage(`已清空 ${totalDeleted} 条历史记录`);
+      vscode.window.showInformationMessage(vscode.l10n.t('Cleared {0} history records', totalDeleted));
     }
   }
 
@@ -124,7 +125,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
   private async handleRollback(changeId: number, workspaceName?: string) {
     const result = this.findChange(changeId, workspaceName);
     if (!result) {
-      vscode.window.showErrorMessage(`找不到变更记录 #${changeId}`);
+      vscode.window.showErrorMessage(vscode.l10n.t('Cannot find change record #{0}', changeId));
       return;
     }
 
@@ -150,14 +151,14 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     const result = this.findChange(targetChangeId, workspaceName);
     
     if (!result) {
-      vscode.window.showErrorMessage(`找不到变更记录 #${targetChangeId}`);
+      vscode.window.showErrorMessage(vscode.l10n.t('Cannot find change record #{0}', targetChangeId));
       return;
     }
 
     const { change, db, root } = result;
     const instance = this.workspaceInstances.get(root);
     if (!instance) {
-      vscode.window.showErrorMessage('找不到工作区实例');
+      vscode.window.showErrorMessage(vscode.l10n.t('Cannot find workspace instance'));
       return;
     }
 
@@ -190,12 +191,12 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       });
       this.writeFileContent(filePath, change.new_content);
       
-      vscode.window.showInformationMessage(`✅ 已回滚到 #${change.id} ${change.file_path}`);
+      vscode.window.showInformationMessage(vscode.l10n.t('Rolled back to #{0} {1}', change.id, change.file_path));
       
       // 等待文件系统更新后刷新
       setTimeout(() => this.refresh(), HistoryViewProvider.REFRESH_DELAY_MS);
     } catch (error) {
-      vscode.window.showErrorMessage(`回滚失败: ${error}`);
+      vscode.window.showErrorMessage(vscode.l10n.t('Rollback failed: {0}', String(error)));
     }
   }
 
@@ -210,13 +211,14 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     }
 
     // 1. 确认操作
+    const confirmRollbackText = vscode.l10n.t('Confirm Rollback');
     const answer = await vscode.window.showWarningMessage(
-      `确定要批量回滚 ${changeIds.length} 个文件吗？此操作将回滚到选中的版本。`,
+      vscode.l10n.t('Are you sure you want to batch rollback {0} files? This will rollback to the selected versions.', changeIds.length),
       { modal: true },
-      '确定回滚'
+      confirmRollbackText
     );
     
-    if (answer !== '确定回滚') {
+    if (answer !== confirmRollbackText) {
       return;
     }
 
@@ -300,9 +302,9 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
 
     // 5. 显示结果
     if (failCount === 0) {
-      vscode.window.showInformationMessage(`✅ 批量回滚成功：${successCount} 个文件`);
+      vscode.window.showInformationMessage(vscode.l10n.t('Batch rollback successful: {0} files', successCount));
     } else {
-      vscode.window.showWarningMessage(`批量回滚完成：成功 ${successCount} 个，失败 ${failCount} 个`);
+      vscode.window.showWarningMessage(vscode.l10n.t('Batch rollback completed: {0} successful, {1} failed', successCount, failCount));
     }
 
     // 等待文件系统更新后刷新
@@ -319,19 +321,19 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
   private async handleRestore(changeId: number, workspaceName?: string) {
     const result = this.findChange(changeId, workspaceName);
     if (!result) {
-      vscode.window.showErrorMessage(`找不到变更记录 #${changeId}`);
+      vscode.window.showErrorMessage(vscode.l10n.t('Cannot find change record #{0}', changeId));
       return;
     }
 
     const { change, db, root } = result;
     if (change.operation_type !== 'rollback') {
-      vscode.window.showErrorMessage('此记录不是回滚操作');
+      vscode.window.showErrorMessage(vscode.l10n.t('This record is not a rollback operation'));
       return;
     }
 
     const instance = this.workspaceInstances.get(root);
     if (!instance) {
-      vscode.window.showErrorMessage('找不到工作区实例');
+      vscode.window.showErrorMessage(vscode.l10n.t('Cannot find workspace instance'));
       return;
     }
 
@@ -352,11 +354,11 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       // 4. 删除这条回滚记录
       db.deleteChange(changeId);
       
-      vscode.window.showInformationMessage(`✅ 已恢复到回滚前的状态`);
+      vscode.window.showInformationMessage(vscode.l10n.t('Restored to pre-rollback state'));
       
       setTimeout(() => this.refresh(), HistoryViewProvider.REFRESH_DELAY_MS);
     } catch (error) {
-      vscode.window.showErrorMessage(`恢复失败: ${error}`);
+      vscode.window.showErrorMessage(vscode.l10n.t('Restore failed: {0}', String(error)));
       instance.watcher.clearOperationContext(path.join(root, change.file_path));
     }
   }
@@ -365,7 +367,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
   private async handleViewDiff(changeId: number, workspaceName?: string) {
     const result = this.findChange(changeId, workspaceName);
     if (!result) {
-      vscode.window.showErrorMessage(`找不到变更记录 #${changeId}`);
+      vscode.window.showErrorMessage(vscode.l10n.t('Cannot find change record #{0}', changeId));
       return;
     }
 
@@ -391,7 +393,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       'vscode.diff',
       oldUri,
       newUri,
-      `变更 #${changeId}: ${change.file_path}`
+      vscode.l10n.t('Change #{0}: {1}', changeId, change.file_path)
     );
 
     // 清理
@@ -477,8 +479,11 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     const showTabs = workspaces.length > 1;
 
     // 获取 Codicon 字体 URI
-    const codiconUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this._extensionUri, 'node_modules', '@vscode/codicons', 'dist', 'codicon.css')
+    const codiconCssUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this._extensionUri, 'node_modules', '@vscode', 'codicons', 'dist', 'codicon.css')
+    );
+    const codiconFontUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this._extensionUri, 'node_modules', '@vscode', 'codicons', 'dist', 'codicon.ttf')
     );
 
     return `<!DOCTYPE html>
@@ -486,9 +491,16 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; script-src 'unsafe-inline';">
+      <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource} data:; script-src 'unsafe-inline';">
       <title>ReCode History</title>
-      <link href="${codiconUri}" rel="stylesheet" />
+      <style>
+        @font-face {
+          font-family: "codicon";
+          font-display: block;
+          src: url("${codiconFontUri}") format("truetype");
+        }
+      </style>
+      <link href="${codiconCssUri}" rel="stylesheet" />
       <style>
         * {
           box-sizing: border-box;

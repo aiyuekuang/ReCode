@@ -1,18 +1,18 @@
 {
   "name": "recode",
-  "displayName": "ReCode - AI Code History Guard",
-  "description": "Track and rollback AI code changes automatically. Perfect for AI-assisted coding scenarios.",
-  "version": "0.1.2",
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "version": "0.1.3",
   "publisher": "ztao",
   "icon": "images/icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/YOUR_USERNAME/recode-vscode"
+    "url": "https://github.com/aiyuekuang/ReCode"
   },
   "bugs": {
-    "url": "https://github.com/YOUR_USERNAME/recode-vscode/issues"
+    "url": "https://github.com/aiyuekuang/ReCode/issues"
   },
-  "homepage": "https://github.com/YOUR_USERNAME/recode-vscode#readme",
+  "homepage": "https://github.com/aiyuekuang/ReCode#readme",
   "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"
@@ -34,24 +34,25 @@
     "onStartupFinished"
   ],
   "main": "./out/extension.js",
+  "l10n": "./l10n",
   "contributes": {
     "commands": [
       {
         "command": "recode.showHistory",
-        "title": "ReCode: Show History",
+        "title": "%command.showHistory%",
         "icon": "$(history)"
       },
       {
         "command": "recode.enable",
-        "title": "ReCode: Enable Tracking"
+        "title": "%command.enable%"
       },
       {
         "command": "recode.disable",
-        "title": "ReCode: Disable Tracking"
+        "title": "%command.disable%"
       },
       {
         "command": "recode.clearHistory",
-        "title": "ReCode: Clear History",
+        "title": "%command.clearHistory%",
         "icon": "$(trash)"
       }
     ],
@@ -59,7 +60,7 @@
       "activitybar": [
         {
           "id": "recode-sidebar",
-          "title": "ReCode",
+          "title": "%viewsContainer.title%",
           "icon": "$(database)"
         }
       ]
@@ -69,34 +70,38 @@
         {
           "type": "webview",
           "id": "recode.historyView",
-          "name": "Change History"
+          "name": "%view.historyView.name%"
         }
       ]
     },
     "configuration": {
-      "title": "ReCode",
+      "title": "%config.title%",
       "properties": {
         "recode.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable automatic change tracking"
+          "description": "%config.enabled.description%"
         },
         "recode.debounceDelay": {
           "type": "number",
           "default": 2000,
-          "description": "Debounce delay in milliseconds"
+          "minimum": 100,
+          "maximum": 30000,
+          "description": "%config.debounceDelay.description%"
         },
         "recode.maxHistorySize": {
           "type": "number",
           "default": 1000,
-          "description": "Maximum number of changes to keep"
+          "minimum": 10,
+          "maximum": 100000,
+          "description": "%config.maxHistorySize.description%"
         },
         "recode.retentionDays": {
           "type": "number",
           "default": 15,
           "minimum": 1,
           "maximum": 365,
-          "description": "Number of days to retain change history (1-365)"
+          "description": "%config.retentionDays.description%"
         }
       }
     }

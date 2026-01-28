@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3] - 2026-01-28
+
+### Added
+- 🌐 Internationalization (i18n) support - English and Chinese
+- Auto language switching based on VS Code language setting
+
+### Fixed
+- Fixed codicon icons not displaying in production builds
+- Fixed repository URLs in package.json
+
+### Changed
+- Added minimum/maximum bounds to debounceDelay and maxHistorySize config
+- Updated README with English and Chinese versions
+
 ## [0.1.0] - 2024-01-27
 
 ### Added

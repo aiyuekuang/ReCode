@@ -1,0 +1,15 @@
+{
+  "displayName": "ReCode - AI Code History Guard",
+  "description": "Track and rollback AI code changes automatically. Perfect for AI-assisted coding scenarios.",
+  "command.showHistory": "ReCode: Show History",
+  "command.enable": "ReCode: Enable Tracking",
+  "command.disable": "ReCode: Disable Tracking",
+  "command.clearHistory": "ReCode: Clear History",
+  "viewsContainer.title": "ReCode",
+  "view.historyView.name": "Change History",
+  "config.title": "ReCode",
+  "config.enabled.description": "Enable automatic change tracking",
+  "config.debounceDelay.description": "Debounce delay in milliseconds",
+  "config.maxHistorySize.description": "Maximum number of changes to keep",
+  "config.retentionDays.description": "Number of days to retain change history (1-365)"
+}

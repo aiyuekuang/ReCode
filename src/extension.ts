@@ -19,7 +19,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   const workspaceFolders = vscode.workspace.workspaceFolders;
   if (!workspaceFolders || workspaceFolders.length === 0) {
-    vscode.window.showWarningMessage('ReCode: 请打开一个工作区才能使用');
+    vscode.window.showWarningMessage(vscode.l10n.t('Please open a workspace to use ReCode'));
     return;
   }
 
@@ -89,21 +89,22 @@ export async function activate(context: vscode.ExtensionContext) {
     );
 
     // 注册清理历史记录命令
+    const confirmClearText = vscode.l10n.t('Confirm Clear');
     context.subscriptions.push(
       vscode.commands.registerCommand('recode.clearHistory', async () => {
         const answer = await vscode.window.showWarningMessage(
-          '确定要清空所有历史记录吗？此操作不可恢复！',
+          vscode.l10n.t('Are you sure you want to clear all history? This action cannot be undone!'),
           { modal: true },
-          '确定清空'
+          confirmClearText
         );
         
-        if (answer === '确定清空') {
+        if (answer === confirmClearText) {
           let totalDeleted = 0;
           workspaceInstances.forEach(instance => {
             totalDeleted += instance.db.clearAll();
           });
           historyViewProvider.refresh();
-          vscode.window.showInformationMessage(`已清空 ${totalDeleted} 条历史记录`);
+          vscode.window.showInformationMessage(vscode.l10n.t('Cleared {0} history records', totalDeleted));
         }
       })
     );
@@ -176,7 +177,7 @@ export async function activate(context: vscode.ExtensionContext) {
     );
 
   } catch (error) {
-    vscode.window.showErrorMessage(`ReCode 初始化失败: ${error}`);
+    vscode.window.showErrorMessage(vscode.l10n.t('ReCode initialization failed: {0}', String(error)));
     console.error('ReCode activation error:', error);
   }
 }

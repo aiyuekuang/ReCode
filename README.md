@@ -1,177 +1,179 @@
 # ReCode - AI Code History Guard
 
-[![VS Code Marketplace](https://img.shields.io/badge/VS%20Code-Marketplace-blue)](https://marketplace.visualstudio.com/items?itemName=YOUR_PUBLISHER_ID.recode)
+[![VS Code Marketplace](https://img.shields.io/badge/VS%20Code-Marketplace-blue)](https://marketplace.visualstudio.com/items?itemName=ztao.recode)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-自动追踪代码变更，一键回滚到任意版本。**专为 AI 编码场景设计。**
+[中文文档](./README_CN.md)
 
-## ✨ 功能特性
+Automatically track code changes and rollback to any version with one click. **Designed for AI-assisted coding scenarios.**
 
-- 🔄 **自动追踪** - 无侵入式监控所有代码文件变化
-- ⏪ **一键回滚** - 预览并回滚到任意历史版本
-- 📦 **批量检测** - 智能识别 AI 工具的批量修改（10秒窗口）
-- 💾 **高效存储** - 使用 SQLite + diff 存储，节省空间
-- 🔀 **多工作区支持** - 同时监控多个工作区
-- ⚙️ **可配置** - 自定义保留天数、最大记录数等
-- 🎯 **通用兼容** - 兼容 Cursor、Copilot、Claude 等所有 AI 工具
+## ✨ Features
 
-## 📥 安装
+- 🔄 **Auto Tracking** - Non-invasive monitoring of all code file changes
+- ⏪ **One-Click Rollback** - Preview and rollback to any historical version
+- 📦 **Batch Detection** - Smart detection of AI tool batch modifications (10-second window)
+- 💾 **Efficient Storage** - Uses SQLite + diff storage to save space
+- 🔀 **Multi-Workspace Support** - Monitor multiple workspaces simultaneously
+- ⚙️ **Configurable** - Customize retention days, max history size, etc.
+- 🎯 **Universal Compatibility** - Works with Cursor, Copilot, Claude, and all AI tools
 
-在 VS Code 中搜索 `ReCode` 或直接安装：
+## 📥 Installation
+
+Search for `ReCode` in VS Code or install directly:
 
 ```bash
-ext install YOUR_PUBLISHER_ID.recode
+ext install ztao.recode
 ```
 
-或者在 [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=YOUR_PUBLISHER_ID.recode) 下载。
+Or download from [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=ztao.recode).
 
-## 🚀 快速开始
+## 🚀 Quick Start
 
-1. 安装插件后，左侧活动栏会出现 ReCode 图标
-2. 点击图标打开变更历史面板
-3. 开始编辑代码，变更会自动记录
-4. 使用三种操作：
-   - **Diff** 🔍 - 查看某次修改的具体内容
-   - **恢复** ↩️ - 快速撤销最近一次修改（仅最新记录）
-   - **回滚** ⏪ - 回到任意历史版本（需要确认）
+1. After installation, the ReCode icon appears in the left activity bar
+2. Click the icon to open the change history panel
+3. Start editing code, changes are automatically recorded
+4. Use three operations:
+   - **Diff** 🔍 - View specific changes of a modification
+   - **Restore** ↩️ - Quickly undo the most recent modification (latest record only)
+   - **Rollback** ⏪ - Return to any historical version (requires confirmation)
 
-## 📖 业务逻辑说明
+## 📖 How It Works
 
-### 核心概念
+### Core Concept
 
-ReCode 自动记录每次文件保存,创建一条变更记录：
+ReCode automatically records each file save, creating a change record:
 
 ```
-时间线 →
-v0 ──[修改1]──> v1 ──[修改2]──> v2 ──[修改3]──> v3 (当前)
-    记录#1         记录#2         记录#3
+Timeline →
+v0 ──[edit1]──> v1 ──[edit2]──> v2 ──[edit3]──> v3 (current)
+    record#1       record#2       record#3
     old: v0        old: v1        old: v2
     new: v1        new: v2        new: v3
 ```
 
-### 三种操作
+### Three Operations
 
-#### 1︎⃣ 查看差异 (Diff)
+#### 1️⃣ View Diff
 
-**作用**：查看某次修改的具体内容  
-**显示**：所有记录  
-**效果**：左侧显示 `old_content`，右侧显示 `new_content`
+**Purpose**: View specific content of a modification  
+**Display**: All records  
+**Effect**: Left side shows `old_content`, right side shows `new_content`
 
-#### 2︎⃣ 恢复 (Restore)
+#### 2️⃣ Restore
 
-**作用**：撤销回滚操作，恢复到回滚前的状态  
-**显示**：仅当最新记录是回滚/恢复操作产生的  
-**确认**：直接执行  
-**示例**：回滚后发现错了，点击“恢复”撤销回滚
+**Purpose**: Undo a rollback operation, restore to pre-rollback state  
+**Display**: Only when the latest record is from a rollback/restore operation  
+**Confirmation**: Executes directly  
+**Example**: After rollback, realize it was wrong, click "Restore" to undo
 
-#### 3︎⃣ 回滚 (Rollback)
+#### 3️⃣ Rollback
 
-**作用**：回到某个历史版本  
-**显示**：仅历史记录（非最新）  
-**确认**：需要二次确认，显示会被撤销的修改链路  
-**示例**：想回到 3 次修改前的版本
+**Purpose**: Return to a historical version  
+**Display**: Only historical records (not latest)  
+**Confirmation**: Requires secondary confirmation, shows the modification chain to be undone  
+**Example**: Want to go back to the version from 3 modifications ago
 
-### 完整流程示例
+### Complete Flow Example
 
 ```
-初始状态：
-#1: "a" → "ab"      [回滚]
-#2: "ab" → "abc"     [回滚]
-#3: "abc" → "abcd"   [无操作] ← 最新，正常编辑
-当前文件: "abcd"
+Initial state:
+#1: "a" → "ab"      [Rollback]
+#2: "ab" → "abc"     [Rollback]
+#3: "abc" → "abcd"   [No action] ← Latest, normal edit
+Current file: "abcd"
 
-└── 用户点击 #1 的“回滚”
+└── User clicks "Rollback" on #1
     │
-    ├─> 文件变为: "ab"
-    ├─> 生成记录 #4: "abcd" → "ab" (rollback_from_id=3, rollback_to_id=1)
-    └─> #2, #3 变灰（失效）
+    ├─> File becomes: "ab"
+    ├─> Creates record #4: "abcd" → "ab" (rollback_from_id=3, rollback_to_id=1)
+    └─> #2, #3 become grayed out (invalidated)
 
-#1: "a" → "ab"      [回滚] ← 回滚目标
-#2: "ab" → "abc"     [回滚] 🔘 变灰
-#3: "abc" → "abcd"   [回滚] 🔘 变灰
-#4: "abcd" → "ab"    [恢复到 #3] ← 最新
-当前文件: "ab"
+#1: "a" → "ab"      [Rollback] ← Rollback target
+#2: "ab" → "abc"     [Rollback] 🔘 Grayed
+#3: "abc" → "abcd"   [Rollback] 🔘 Grayed
+#4: "abcd" → "ab"    [Restore to #3] ← Latest
+Current file: "ab"
 
-└── 用户点击 #4 的“恢复到 #3”
+└── User clicks "Restore to #3" on #4
     │
-    ├─> 文件恢复为: "abcd"
-    ├─> 生成记录 #5: "ab" → "abcd" (rollback_from_id=3, rollback_to_id=1)
-    └─> #4 变灰，#2, #3 恢复正常
+    ├─> File restored to: "abcd"
+    ├─> Creates record #5: "ab" → "abcd" (rollback_from_id=3, rollback_to_id=1)
+    └─> #4 grayed, #2, #3 restored to normal
 
-#1: "a" → "ab"      [回滚]
-#2: "ab" → "abc"     [回滚] ✓ 恢复正常
-#3: "abc" → "abcd"   [回滚] ✓ 恢复正常
-#4: "abcd" → "ab"    [回滚] 🔘 变灰
-#5: "ab" → "abcd"    [恢复到 #3] ← 最新
-当前文件: "abcd"
+#1: "a" → "ab"      [Rollback]
+#2: "ab" → "abc"     [Rollback] ✓ Restored
+#3: "abc" → "abcd"   [Rollback] ✓ Restored
+#4: "abcd" → "ab"    [Rollback] 🔘 Grayed
+#5: "ab" → "abcd"    [Restore to #3] ← Latest
+Current file: "abcd"
 
-└── 用户手动编辑并保存
+└── User manually edits and saves
     │
-    ├─> 文件变为: "abcdef"
-    ├─> 生成记录 #6: "abcd" → "abcdef" (正常编辑)
-    └─> 所有记录恢复正常
+    ├─> File becomes: "abcdef"
+    ├─> Creates record #6: "abcd" → "abcdef" (normal edit)
+    └─> All records restored to normal
 
-#1: "a" → "ab"      [回滚]
-#2: "ab" → "abc"     [回滚]
-#3: "abc" → "abcd"   [回滚]
-#4: "abcd" → "ab"    [回滚]
-#5: "ab" → "abcd"    [回滚]
-#6: "abcd" → "abcdef" [无操作] ← 最新，正常编辑
-当前文件: "abcdef"
+#1: "a" → "ab"      [Rollback]
+#2: "ab" → "abc"     [Rollback]
+#3: "abc" → "abcd"   [Rollback]
+#4: "abcd" → "ab"    [Rollback]
+#5: "ab" → "abcd"    [Rollback]
+#6: "abcd" → "abcdef" [No action] ← Latest, normal edit
+Current file: "abcdef"
 ```
 
-### 按钮显示规则
+### Button Display Rules
 
-| 记录类型 | 条件 | 显示的按钮 | 样式 |
-|---------|------|-----------|------|
-| 最新记录 | 有 `rollback_from_id` | 🔄 恢复到 #X | 正常 |
-| 最新记录 | 无 `rollback_from_id` | 无按钮 | 正常 |
-| 历史记录 | 在回滚区间内 | ⏪ 回滚 | 🔘 变灰 + 删除线 |
-| 历史记录 | 不在回滚区间内 | ⏪ 回滚 | 正常 |
+| Record Type | Condition | Button Shown | Style |
+|-------------|-----------|--------------|-------|
+| Latest record | Has `rollback_from_id` | 🔄 Restore to #X | Normal |
+| Latest record | No `rollback_from_id` | No button | Normal |
+| Historical record | In rollback range | ⏪ Rollback | 🔘 Grayed + Strikethrough |
+| Historical record | Not in rollback range | ⏪ Rollback | Normal |
 
-**详细技术文档请查看** [📝 LOGIC.md](./LOGIC.md)
+**For detailed technical documentation, see** [📝 LOGIC.md](./LOGIC.md)
 
-## ⚙️ 配置选项
+## ⚙️ Configuration
 
-在 VS Code 设置中搜索 `recode`:
+Search for `recode` in VS Code settings:
 
-| 配置项 | 默认值 | 说明 |
-|--------|--------|------|
-| `recode.enabled` | `true` | 启用/禁用自动追踪 |
-| `recode.retentionDays` | `15` | 保留历史记录的天数 (1-365) |
-| `recode.maxHistorySize` | `1000` | 最大保留记录数 |
-| `recode.debounceDelay` | `2000` | 防抖延迟 (毫秒) |
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `recode.enabled` | `true` | Enable/disable automatic tracking |
+| `recode.retentionDays` | `15` | Days to retain change history (1-365) |
+| `recode.maxHistorySize` | `1000` | Maximum number of records to keep |
+| `recode.debounceDelay` | `2000` | Debounce delay in milliseconds |
 
-## 🔧 命令
+## 🔧 Commands
 
-| 命令 | 说明 |
-|------|------|
-| `ReCode: Show History` | 显示变更历史面板 |
-| `ReCode: Enable Tracking` | 启用追踪 |
-| `ReCode: Disable Tracking` | 禁用追踪 |
+| Command | Description |
+|---------|-------------|
+| `ReCode: Show History` | Show change history panel |
+| `ReCode: Enable Tracking` | Enable tracking |
+| `ReCode: Disable Tracking` | Disable tracking |
 
-## 📁 数据存储
+## 📁 Data Storage
 
-变更记录存储在项目根目录的 `.recode/` 文件夹中：
-- 自动添加到 `.gitignore`
-- 使用 SQLite 数据库
-- 只存储 diff，不存储完整文件副本
+Change records are stored in the `.recode/` folder in the project root:
+- Automatically added to `.gitignore`
+- Uses SQLite database
+- Only stores diffs, not complete file copies
 
-## 🎯 使用场景
+## 🎯 Use Cases
 
-### AI 辅助编程
-当使用 Cursor、GitHub Copilot、ChatGPT 等 AI 工具时，AI 可能会对代码做大量修改。ReCode 会自动将这些批量修改分组，方便你一键回滚。
+### AI-Assisted Programming
+When using Cursor, GitHub Copilot, ChatGPT, and other AI tools, AI may make extensive code modifications. ReCode automatically groups these batch modifications, making it easy to rollback with one click.
 
-### 实验性修改
-尝试不同的实现方案时，随时可以回滚到之前的版本，无需手动备份。
+### Experimental Changes
+When trying different implementation approaches, you can rollback to previous versions at any time without manual backups.
 
-### 代码审查
-查看文件的变更历史，了解代码是如何演变的。
+### Code Review
+View file change history to understand how code has evolved.
 
-## 🤝 贡献
+## 🤝 Contributing
 
-欢迎提交 Issue 和 Pull Request！
+Issues and Pull Requests are welcome!
 
-## 📄 许可证
+## 📄 License
 
 MIT License
