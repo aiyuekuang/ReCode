@@ -43,19 +43,19 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.onDidReceiveMessage(async (data) => {
       switch (data.type) {
         case 'rollback':
-          await this.handleRollback(data.changeId);
+          await this.handleRollback(data.changeId, data.workspaceName);
           break;
         case 'confirmRollback':
-          await this.executeRollback(data.targetChangeId);
+          await this.executeRollback(data.targetChangeId, data.workspaceName);
           break;
         case 'batchRollback':
-          await this.handleBatchRollback(data.changeIds);
+          await this.handleBatchRollback(data.changeIds, data.workspaceNames);
           break;
         case 'restore':
-          await this.handleRestore(data.changeId);
+          await this.handleRestore(data.changeId, data.workspaceName);
           break;
         case 'viewDiff':
-          await this.handleViewDiff(data.changeId);
+          await this.handleViewDiff(data.changeId, data.workspaceName);
           break;
         case 'refresh':
           this.refresh();
@@ -91,10 +91,16 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
-   * 在所有工作区中查找变更记录
+   * 在指定工作区中查找变更记录
+   * @param changeId 变更记录 ID
+   * @param workspaceName 可选的工作区名称，用于精确定位
    */
-  private findChange(changeId: number): { change: CodeChange; db: ReCode; root: string } | null {
+  private findChange(changeId: number, workspaceName?: string): { change: CodeChange; db: ReCode; root: string } | null {
     for (const [root, instance] of this.workspaceInstances) {
+      // 如果指定了工作区名称，先检查是否匹配
+      if (workspaceName && path.basename(root) !== workspaceName) {
+        continue;
+      }
       const change = instance.db.getChangeById(changeId);
       if (change) {
         return { change, db: instance.db, root };
@@ -115,8 +121,8 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     return fs.existsSync(filePath);
   }
 
-  private async handleRollback(changeId: number) {
-    const result = this.findChange(changeId);
+  private async handleRollback(changeId: number, workspaceName?: string) {
+    const result = this.findChange(changeId, workspaceName);
     if (!result) {
       vscode.window.showErrorMessage(`找不到变更记录 #${changeId}`);
       return;
@@ -134,13 +140,14 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         type: 'showRollbackModal',
         targetChange: change,
         laterChanges: laterChanges, // 保持倒序（从新到旧）
-        targetRoot: root
+        targetRoot: root,
+        workspaceName: path.basename(root)
       });
     }
   }
 
-  private async executeRollback(targetChangeId: number) {
-    const result = this.findChange(targetChangeId);
+  private async executeRollback(targetChangeId: number, workspaceName?: string) {
+    const result = this.findChange(targetChangeId, workspaceName);
     
     if (!result) {
       vscode.window.showErrorMessage(`找不到变更记录 #${targetChangeId}`);
@@ -195,8 +202,9 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
   /**
    * 配置驱动：处理批量回滚
    * @param changeIds 要回滚的变更记录 ID 数组
+   * @param workspaceNames 对应的工作区名称数组
    */
-  private async handleBatchRollback(changeIds: number[]) {
+  private async handleBatchRollback(changeIds: number[], workspaceNames?: string[]) {
     if (!changeIds || changeIds.length === 0) {
       return;
     }
@@ -215,8 +223,10 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     // 2. 收集所有变更记录，并按文件分组
     const changesByFile = new Map<string, Array<{ change: CodeChange; db: ReCode; root: string }>>();
     
-    for (const changeId of changeIds) {
-      const result = this.findChange(changeId);
+    for (let i = 0; i < changeIds.length; i++) {
+      const changeId = changeIds[i];
+      const workspaceName = workspaceNames?.[i];
+      const result = this.findChange(changeId, workspaceName);
       if (!result) {
         console.warn(`找不到变更记录 #${changeId}，跳过`);
         continue;
@@ -306,8 +316,8 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     return `@@ -1,${oldLines} +1,${newLines} @@`;
   }
 
-  private async handleRestore(changeId: number) {
-    const result = this.findChange(changeId);
+  private async handleRestore(changeId: number, workspaceName?: string) {
+    const result = this.findChange(changeId, workspaceName);
     if (!result) {
       vscode.window.showErrorMessage(`找不到变更记录 #${changeId}`);
       return;
@@ -352,8 +362,8 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
   }
 
 
-  private async handleViewDiff(changeId: number) {
-    const result = this.findChange(changeId);
+  private async handleViewDiff(changeId: number, workspaceName?: string) {
+    const result = this.findChange(changeId, workspaceName);
     if (!result) {
       vscode.window.showErrorMessage(`找不到变更记录 #${changeId}`);
       return;
@@ -1243,13 +1253,14 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           </div>
           <div class="group-content">
             ${group.changes.map((change: any) => {
-              // 生成 tooltip 内容和 ID 列表
+              // 生成 tooltip 内容和 ID 列表（包含 workspaceName 以区分不同工作区）
               let tooltipContent = '';
               let rollbackedIds = '';
               if (change.operation_type === 'rollback' && change.rollbackedRecords && change.rollbackedRecords.length > 0) {
                 tooltipContent = `回滚了 ${change.rollbackedRecords.length} 条记录:\n` +
                   change.rollbackedRecords.map((r: any) => `#${r.id} (+${r.lines_added}/-${r.lines_removed})`).join('\n');
-                rollbackedIds = change.rollbackedRecords.map((r: any) => r.id).join(',');
+                // 格式: workspaceName:id,workspaceName:id
+                rollbackedIds = change.rollbackedRecords.map((r: any) => `${change.workspaceName}:${r.id}`).join(',');
               }
               
               // 配置：判断是否可选择（可回滚的记录）
@@ -1281,15 +1292,15 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
                   <span class="removed">-${change.lines_removed}</span>
                 </span>
                 <div class="file-actions">
-                  <button class="btn" onclick="viewDiff(${change.id})" title="查看差异">
+                  <button class="btn" onclick="viewDiff(this, ${change.id})" title="查看差异">
                     <i class="codicon codicon-diff"></i>
                   </button>
                   ${change.canRestore ? `
-                    <button class="btn" onclick="restore(${change.id})" title="恢复回滚">
+                    <button class="btn" onclick="restore(this, ${change.id})" title="恢复回滚">
                       <i class="codicon codicon-debug-restart"></i>
                     </button>
                   ` : !change.covered_by_rollback_id && change.operation_type !== 'rollback' && !change.isRollbackTarget ? `
-                    <button class="btn btn-danger" onclick="rollback(${change.id})" title="回滚到此版本">
+                    <button class="btn btn-danger" onclick="rollback(this, ${change.id})" title="回滚到此版本">
                       <i class="codicon codicon-discard"></i>
                     </button>
                   ` : ''}
@@ -1344,56 +1355,63 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         };
         
         // 配置：批量选择状态管理
+        // 使用 workspace:changeId 组合作为唯一标识，避免不同工作区相同 ID 冲突
         const selectionState = {
-          selectedIds: new Set(),  // 当前选中的 change ID 集合
+          selectedKeys: new Set(),  // 当前选中的 workspace:changeId 集合
+          
+          // 生成唯一标识
+          makeKey(workspace, changeId) {
+            return workspace + ':' + changeId;
+          },
           
           // 添加选中
-          add(changeId) {
-            this.selectedIds.add(changeId);
+          add(workspace, changeId) {
+            this.selectedKeys.add(this.makeKey(workspace, changeId));
             this.updateUI();
           },
           
           // 移除选中
-          remove(changeId) {
-            this.selectedIds.delete(changeId);
+          remove(workspace, changeId) {
+            this.selectedKeys.delete(this.makeKey(workspace, changeId));
             this.updateUI();
           },
           
-          // 切换选中状态
-          toggle(changeId) {
-            if (this.selectedIds.has(changeId)) {
-              this.remove(changeId);
-            } else {
-              this.add(changeId);
-            }
-          },
-          
           // 批量添加
-          addMultiple(changeIds) {
-            changeIds.forEach(id => this.selectedIds.add(id));
+          addMultiple(items) {
+            items.forEach(item => this.selectedKeys.add(this.makeKey(item.workspace, item.changeId)));
             this.updateUI();
           },
           
           // 批量移除
-          removeMultiple(changeIds) {
-            changeIds.forEach(id => this.selectedIds.delete(id));
+          removeMultiple(items) {
+            items.forEach(item => this.selectedKeys.delete(this.makeKey(item.workspace, item.changeId)));
             this.updateUI();
           },
           
           // 清空选中
           clear() {
-            this.selectedIds.clear();
+            this.selectedKeys.clear();
             this.updateUI();
           },
           
           // 获取选中数量
           count() {
-            return this.selectedIds.size;
+            return this.selectedKeys.size;
           },
           
           // 判断是否选中
-          has(changeId) {
-            return this.selectedIds.has(changeId);
+          has(workspace, changeId) {
+            return this.selectedKeys.has(this.makeKey(workspace, changeId));
+          },
+          
+          // 获取所有选中项（解析为 workspace 和 changeId）
+          getAll() {
+            const result = [];
+            this.selectedKeys.forEach(key => {
+              const [workspace, changeId] = key.split(':');
+              result.push({ workspace, changeId: parseInt(changeId) });
+            });
+            return result;
           },
           
           // 更新 UI 显示
@@ -1414,8 +1432,9 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
             
             // 2. 更新文件行的选中样式
             document.querySelectorAll(SELECTORS.FILE_ROW).forEach(row => {
+              const workspace = row.getAttribute('data-workspace');
               const changeId = parseInt(row.getAttribute('data-change-id'));
-              if (this.has(changeId)) {
+              if (this.has(workspace, changeId)) {
                 row.classList.add('selected');
               } else {
                 row.classList.remove('selected');
@@ -1440,15 +1459,16 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
             
             const selectableRows = Array.from(group.querySelectorAll(SELECTORS.FILE_ROW + '[data-selectable="true"]'));
             const selectedCount = selectableRows.filter(row => {
+              const workspace = row.getAttribute('data-workspace');
               const changeId = parseInt(row.getAttribute('data-change-id'));
-              return this.has(changeId);
+              return this.has(workspace, changeId);
             }).length;
             
             if (selectedCount === 0) {
               // 未选：unchecked
               groupCheckbox.checked = false;
               groupCheckbox.indeterminate = false;
-            } else if (selectedCount === selectableRows.length) {
+            } else if (selectedCount === selectableRows.length && selectableRows.length > 0) {
               // 全选：checked
               groupCheckbox.checked = true;
               groupCheckbox.indeterminate = false;
@@ -1462,10 +1482,12 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         
         // 配置：切换单个文件的选中状态
         function toggleFileSelection(checkbox, changeId, groupIndex) {
+          const row = checkbox.closest(SELECTORS.FILE_ROW);
+          const workspace = row ? row.getAttribute('data-workspace') : '';
           if (checkbox.checked) {
-            selectionState.add(changeId);
+            selectionState.add(workspace, changeId);
           } else {
-            selectionState.remove(changeId);
+            selectionState.remove(workspace, changeId);
           }
         }
         
@@ -1474,21 +1496,24 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           const group = document.querySelector('[data-group="' + groupIndex + '"]');
           if (!group) { return; }
           
-          // 获取该组内所有可选择的文件
+          // 获取该组内所有可选择的文件（同时获取 workspace 和 changeId）
           const selector = SELECTORS.FILE_ROW + '[data-selectable="true"]';
           const selectableRows = Array.from(group.querySelectorAll(selector));
-          const changeIds = selectableRows.map(row => parseInt(row.getAttribute('data-change-id')));
+          const items = selectableRows.map(row => ({
+            workspace: row.getAttribute('data-workspace'),
+            changeId: parseInt(row.getAttribute('data-change-id'))
+          }));
           
           if (groupCheckbox.checked) {
             // 全选
-            selectionState.addMultiple(changeIds);
+            selectionState.addMultiple(items);
             selectableRows.forEach(row => {
               const checkbox = row.querySelector('.file-checkbox');
               if (checkbox) { checkbox.checked = true; }
             });
           } else {
             // 取消全选
-            selectionState.removeMultiple(changeIds);
+            selectionState.removeMultiple(items);
             selectableRows.forEach(row => {
               const checkbox = row.querySelector('.file-checkbox');
               if (checkbox) { checkbox.checked = false; }
@@ -1501,9 +1526,15 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           if (selectionState.count() === 0) {
             return;
           }
+          // 从 selectionState 获取所有选中项
+          const items = selectionState.getAll();
+          const changeIds = items.map(item => item.changeId);
+          const workspaceNames = items.map(item => item.workspace);
+          
           vscode.postMessage({
             type: 'batchRollback',
-            changeIds: Array.from(selectionState.selectedIds)
+            changeIds,
+            workspaceNames
           });
           selectionState.clear();
         }
@@ -1512,7 +1543,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         window.addEventListener('message', event => {
           const message = event.data;
           if (message.type === 'showRollbackModal') {
-            showRollbackModal(message.targetChange, message.laterChanges);
+            showRollbackModal(message.targetChange, message.laterChanges, message.workspaceName);
           }
         });
         
@@ -1523,16 +1554,28 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           }
         }
         
-        function rollback(changeId) {
-          vscode.postMessage({ type: 'rollback', changeId });
+        function rollback(btn, changeId) {
+          const row = btn.closest(SELECTORS.FILE_ROW);
+          const workspaceName = row ? row.getAttribute('data-workspace') : null;
+          vscode.postMessage({ type: 'rollback', changeId, workspaceName });
         }
         
-        function restore(changeId) {
-          vscode.postMessage({ type: 'restore', changeId });
+        function restore(btn, changeId) {
+          const row = btn.closest(SELECTORS.FILE_ROW);
+          const workspaceName = row ? row.getAttribute('data-workspace') : null;
+          vscode.postMessage({ type: 'restore', changeId, workspaceName });
         }
         
-        function viewDiff(changeId) {
-          vscode.postMessage({ type: 'viewDiff', changeId });
+        function viewDiff(btn, changeId) {
+          const row = btn.closest(SELECTORS.FILE_ROW);
+          const workspaceName = row ? row.getAttribute('data-workspace') : null;
+          vscode.postMessage({ type: 'viewDiff', changeId, workspaceName });
+        }
+        
+        // 从弹窗中调用，使用 rollbackData 中的 workspaceName
+        function viewDiffDirect(changeId) {
+          const workspaceName = rollbackData ? rollbackData.workspaceName : null;
+          vscode.postMessage({ type: 'viewDiff', changeId, workspaceName });
         }
         
         function refresh() {
@@ -1562,11 +1605,14 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           
           // 2. 高亮被回滚的记录 + 它们所在的分组头部
           if (rollbackedIds) {
-            const ids = rollbackedIds.split(',');
+            const items = rollbackedIds.split(',');
             const highlightedGroups = new Set();  // 记录已高亮的分组
             
-            ids.forEach(id => {
-              const row = document.querySelector(SELECTORS.FILE_ROW + '[data-change-id="' + id + '"]');
+            items.forEach(item => {
+              // 格式: workspaceName:id
+              const [workspace, id] = item.split(':');
+              // 同时匹配 workspace 和 changeId
+              const row = document.querySelector(SELECTORS.FILE_ROW + '[data-workspace="' + workspace + '"][data-change-id="' + id + '"]');
               if (row) {
                 // 高亮记录
                 row.classList.add(SELECTORS.HIGHLIGHT_CLASS);
@@ -1634,8 +1680,8 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           });
         }
         
-        function showRollbackModal(targetChange, laterChanges) {
-          rollbackData = { targetChange, laterChanges };
+        function showRollbackModal(targetChange, laterChanges, workspaceName) {
+          rollbackData = { targetChange, laterChanges, workspaceName };
           
           // 找到目标记录的索引
           const targetIndex = laterChanges.findIndex(c => c.id === targetChange.id);
@@ -1652,7 +1698,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
             const time = new Date(change.timestamp).toLocaleString('zh-CN', {
               month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
             });
-            return '<div class="chain-item ' + (isTarget ? 'target' : '') + '" onclick="viewDiff(' + change.id + ')" title="点击查看差异">' +
+            return '<div class="chain-item ' + (isTarget ? 'target' : '') + '" onclick="viewDiffDirect(' + change.id + ')" title="点击查看差异">' +
               '<div class="chain-item-info">' +
                 '<div class="chain-item-id">#' + change.id + (isTarget ? ' <span style="color: var(--vscode-errorForeground);">(回滚目标)</span>' : '') + '</div>' +
                 '<div class="chain-item-time">' + time + '</div>' +
@@ -1678,10 +1724,11 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
             return;
           }
           
-          // 只传目标记录ID
+          // 传递目标记录ID和工作区名称
           vscode.postMessage({ 
             type: 'confirmRollback', 
-            targetChangeId: rollbackData.targetChange.id 
+            targetChangeId: rollbackData.targetChange.id,
+            workspaceName: rollbackData.workspaceName
           });
           closeModal();
         }
@@ -1814,6 +1861,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
+      .replace(/'/g, '&#039;')
+      .replace(/\n/g, '&#10;');
   }
 }

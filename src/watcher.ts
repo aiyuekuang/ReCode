@@ -136,7 +136,8 @@ export class FileWatcher {
   }
 
   start() {
-    this.initFileCache();
+    // 配置驱动：只启动 watcher，不预加载文件缓存
+    // 文件内容在首次变更时按需缓存
     this.setupWatcher();
   }
 
@@ -172,22 +173,6 @@ export class FileWatcher {
     this.pendingOperations.delete(filePath);
   }
 
-  private initFileCache() {
-    // 初始化时加载所有文件的当前内容
-    vscode.workspace.findFiles(
-      '**/*',
-      '**/node_modules/**'
-    ).then(files => {
-      files.forEach(file => {
-        // 只缓存文本文件
-        if (this.isTextFile(file.fsPath)) {
-          this.cacheFile(file.fsPath);
-        }
-      });
-      console.log(`ReCode: Cached ${this.fileCache.size} files`);
-    });
-  }
-
   private isTextFile(filePath: string): boolean {
     // 排除常见的二进制文件
     const binaryExtensions = [
@@ -204,29 +189,19 @@ export class FileWatcher {
     return !binaryExtensions.includes(ext);
   }
 
-  private cacheFile(filePath: string) {
-    try {
-      const content = fs.readFileSync(filePath, 'utf-8');
-      this.fileCache.set(filePath, content);
-    } catch (error) {
-      // 忽略读取失败
-    }
-  }
-
   private setupWatcher() {
-    // 监控所有文件的变化
-    this.watcher = vscode.workspace.createFileSystemWatcher(
-      '**/*'
-    );
+    // 监控当前工作区的文件变化（配置驱动：避免多工作区重复监听）
+    const pattern = new vscode.RelativePattern(this.workspaceRoot, '**/*');
+    this.watcher = vscode.workspace.createFileSystemWatcher(pattern);
 
     this.watcher.onDidChange(uri => {
       if (!this.enabled) return;
       this.handleFileChange(uri.fsPath);
     });
 
+    // 配置驱动：新建文件时不缓存，等待首次变更时再缓存
     this.watcher.onDidCreate(uri => {
-      if (!this.enabled) return;
-      this.cacheFile(uri.fsPath);
+      // 新文件不预缓存，等待实际变更时再处理
     });
 
     this.watcher.onDidDelete(uri => {
@@ -241,8 +216,14 @@ export class FileWatcher {
       return;
     }
     
-    // 检查gitignore
+    // 检查文件是否属于当前工作区（配置驱动：避免多工作区重复记录）
     const relativePath = path.relative(this.workspaceRoot, filePath);
+    if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+      // 文件不在当前工作区内，跳过
+      return;
+    }
+    
+    // 检查gitignore
     if (this.gitignore.isIgnored(relativePath)) {
       return;
     }
@@ -266,6 +247,7 @@ export class FileWatcher {
 
   private recordChange(filePath: string) {
     try {
+      // 如果缓存中没有，说明这是首次跟踪该文件，oldContent 为空
       const oldContent = this.fileCache.get(filePath) || '';
       const newContent = fs.readFileSync(filePath, 'utf-8');
 

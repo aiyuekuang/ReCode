@@ -2,8 +2,8 @@
   "name": "recode",
   "displayName": "ReCode - AI Code History Guard",
   "description": "Track and rollback AI code changes automatically. Perfect for AI-assisted coding scenarios.",
-  "version": "0.1.0",
-  "publisher": "YOUR_PUBLISHER_ID",
+  "version": "0.1.2",
+  "publisher": "ztao",
   "icon": "images/icon.png",
   "repository": {
     "type": "git",

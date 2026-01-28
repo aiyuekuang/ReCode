@@ -9,4 +9,10 @@ vsc-extension-quickstart.md
 **/*.map
 **/*.ts
 node_modules/**
+!node_modules/sql.js/**
 .recode/**
+.env
+.idea/**
+.skills/**
+.claude/**
+warp.md

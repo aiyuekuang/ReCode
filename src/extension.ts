@@ -23,24 +23,34 @@ export async function activate(context: vscode.ExtensionContext) {
     return;
   }
 
-  try {
-    // 为每个工作区初始化
+  // 配置驱动：先注册 UI，再延迟初始化工作区（避免阻塞扩展激活）
+  // 注册Webview Provider (显示所有工作区的变更)
+  historyViewProvider = new HistoryViewProvider(
+    context.extensionUri,
+    workspaceInstances
+  );
+
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      HistoryViewProvider.viewType,
+      historyViewProvider
+    )
+  );
+
+  // 配置驱动：延迟初始化工作区，不阻塞扩展激活
+  setTimeout(async () => {
     for (const folder of workspaceFolders) {
-      await initWorkspace(folder);
+      try {
+        await initWorkspace(folder);
+      } catch (error) {
+        console.error(`ReCode: Failed to init workspace ${folder.name}:`, error);
+      }
     }
+    // 初始化完成后刷新 UI
+    historyViewProvider.refresh();
+  }, 500);
 
-    // 注册Webview Provider (显示所有工作区的变更)
-    historyViewProvider = new HistoryViewProvider(
-      context.extensionUri,
-      workspaceInstances
-    );
-
-    context.subscriptions.push(
-      vscode.window.registerWebviewViewProvider(
-        HistoryViewProvider.viewType,
-        historyViewProvider
-      )
-    );
+  try {
 
     // 注册命令
     context.subscriptions.push(
