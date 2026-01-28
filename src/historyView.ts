@@ -614,24 +614,6 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           opacity: 1;
         }
         
-        /* Group header tooltip */
-        .group-header[title]:hover::after {
-          content: attr(title);
-          position: absolute;
-          top: calc(100% + 4px);
-          left: 12px;
-          padding: 4px 8px;
-          background: var(--vscode-editorHoverWidget-background);
-          border: 1px solid var(--vscode-editorHoverWidget-border);
-          color: var(--vscode-editorHoverWidget-foreground);
-          font-size: 11px;
-          white-space: nowrap;
-          border-radius: 3px;
-          z-index: 10000;
-          pointer-events: none;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-        }
-        
         .group-time {
           font-weight: 500;
           margin-right: 12px;
@@ -837,6 +819,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           font-family: var(--vscode-editor-font-family);
           opacity: 0.7;
           flex-shrink: 0;
+          margin-right: 8px;
         }
         
         .workspace-tag {
@@ -1156,11 +1139,45 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         /* 批量选择样式 */
         .group-checkbox,
         .file-checkbox {
+          appearance: none;
+          -webkit-appearance: none;
           margin-right: 8px;
           cursor: pointer;
-          width: 16px;
-          height: 16px;
+          width: 14px;
+          height: 14px;
           flex-shrink: 0;
+          border: 1px solid var(--vscode-checkbox-border, var(--vscode-foreground));
+          border-radius: 3px;
+          background: transparent;
+          position: relative;
+          opacity: 0.7;
+          transition: opacity 0.15s, border-color 0.15s;
+        }
+        
+        .group-checkbox:hover,
+        .file-checkbox:hover {
+          opacity: 1;
+          border-color: var(--vscode-focusBorder);
+        }
+        
+        .group-checkbox:checked,
+        .file-checkbox:checked {
+          background: var(--vscode-checkbox-background, var(--vscode-button-background));
+          border-color: var(--vscode-checkbox-background, var(--vscode-button-background));
+          opacity: 1;
+        }
+        
+        .group-checkbox:checked::after,
+        .file-checkbox:checked::after {
+          content: '';
+          position: absolute;
+          left: 4px;
+          top: 1px;
+          width: 4px;
+          height: 8px;
+          border: solid var(--vscode-checkbox-foreground, #fff);
+          border-width: 0 2px 2px 0;
+          transform: rotate(45deg);
         }
         
         .group-checkbox {
@@ -1169,7 +1186,19 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         
         /* 半选状态 */
         .group-checkbox:indeterminate {
-          opacity: 0.7;
+          opacity: 1;
+          background: var(--vscode-checkbox-background, var(--vscode-button-background));
+          border-color: var(--vscode-checkbox-background, var(--vscode-button-background));
+        }
+        
+        .group-checkbox:indeterminate::after {
+          content: '';
+          position: absolute;
+          left: 3px;
+          top: 5px;
+          width: 6px;
+          height: 2px;
+          background: var(--vscode-checkbox-foreground, #fff);
         }
         
         /* 选中行高亮 */
@@ -1243,7 +1272,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         const wsNames = [...new Set(group.changes.map((c: any) => c.workspaceName))];
         return `
         <div class="group ${index > 2 ? 'collapsed' : ''}" data-group="${index}" data-workspaces="${wsNames.join(',')}">
-          <div class="group-header" onclick="toggleGroup(${index})" title="点击展开/折叠">
+          <div class="group-header" onclick="toggleGroup(${index})">
             ${group.changes.some((c: any) => !c.covered_by_rollback_id && c.operation_type !== 'rollback' && !c.isRollbackTarget) ? `
               <input type="checkbox" class="group-checkbox" 
                 data-group-index="${index}"

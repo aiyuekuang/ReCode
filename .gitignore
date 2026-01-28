@@ -9,3 +9,6 @@ node_modules/
 .env
 .idea/
 .idea
+
+# ReCode local database
+.recode
