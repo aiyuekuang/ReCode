@@ -1,7 +1,18 @@
 # ReCode - AI Code History Guard
 
-[![VS Code Marketplace](https://img.shields.io/badge/VS%20Code-Marketplace-blue)](https://marketplace.visualstudio.com/items?itemName=ztao.recode)
+[![VS Code Marketplace](https://img.shields.io/badge/VS%20Code-Marketplace-blue)](https://marketplace.visualstudio.com/items?itemName=aiyuekuang.recode)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+> 🎉 **新功能：[ReCode-MCP](https://github.com/aiyuekuang/ReCode-MCP) 已上线！** 让 AI 助手（Claude、Cursor 等）直接访问你的代码变更历史。
+>
+> **MCP 工具：**
+> - `query_history` - 按时间/文件查询变更记录
+> - `get_change_diff` - 获取任意变更的详细 diff
+> - `search_changes` - 搜索代码何时被添加/删除
+> - `get_statistics` - 查看变更频率和文件活跃度
+> - `list_workspaces` - 列出所有 ReCode 工作区
+>
+> 快速开始：`npx recode-mcp`
 
 [English](./README.md)
 

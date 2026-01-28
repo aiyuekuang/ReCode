@@ -1,7 +1,18 @@
 # ReCode - AI Code History Guard
 
-[![VS Code Marketplace](https://img.shields.io/badge/VS%20Code-Marketplace-blue)](https://marketplace.visualstudio.com/items?itemName=ztao.recode)
+[![VS Code Marketplace](https://img.shields.io/badge/VS%20Code-Marketplace-blue)](https://marketplace.visualstudio.com/items?itemName=aiyuekuang.recode)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+> 🎉 **NEW: [ReCode-MCP](https://github.com/aiyuekuang/ReCode-MCP) is now available!** Let AI assistants (Claude, Cursor, etc.) directly access your code change history.
+>
+> **MCP Tools:**
+> - `query_history` - Query change records by time/file
+> - `get_change_diff` - Get detailed diff of any change
+> - `search_changes` - Search when code was added/removed
+> - `get_statistics` - View change frequency & file activity
+> - `list_workspaces` - List all ReCode workspaces
+>
+> Quick start: `npx recode-mcp`
 
 [中文文档](./README_CN.md)
 

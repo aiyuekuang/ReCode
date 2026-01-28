@@ -66,6 +66,12 @@ class GitIgnoreParser {
       p = p.slice(1);
     }
 
+    // 移除尾部斜杠（目录标记）
+    const isExplicitDir = p.endsWith('/');
+    if (isExplicitDir) {
+      p = p.slice(0, -1);
+    }
+
     // 转换为正则表达式
     const regexPattern = p
       .replace(/\./g, '\\.')           // 转义.
@@ -74,10 +80,22 @@ class GitIgnoreParser {
       .replace(/{{GLOBSTAR}}/g, '.*')   // **匹配任意
       .replace(/\?/g, '[^/]');          // ?匹配单字符
 
+    // 判断是否为目录模式（不含通配符且不含扩展名，或显式目录标记）
+    const hasWildcard = p.includes('*') || p.includes('?');
+    const hasExtension = /\.[a-zA-Z0-9]+$/.test(p);
+    const isLikelyDir = isExplicitDir || (!hasWildcard && !hasExtension);
+
     // 如果模式不以/开头,可以匹配任意深度
-    const fullPattern = p.startsWith('/') 
-      ? `^${regexPattern.slice(1)}` 
-      : `(^|/)${regexPattern}`;
+    // 目录模式需要同时匹配目录本身和目录下的所有文件
+    let fullPattern: string;
+    if (p.startsWith('/')) {
+      const base = regexPattern.slice(1);
+      fullPattern = isLikelyDir ? `^${base}(/.*)?$` : `^${base}$`;
+    } else {
+      fullPattern = isLikelyDir 
+        ? `(^|/)${regexPattern}(/.*)?$`
+        : `(^|/)${regexPattern}$`;
+    }
 
     try {
       this.patterns.push({
