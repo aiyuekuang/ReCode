@@ -16,7 +16,7 @@ metadata:
 ## 前置条件
 
 1. **Token 配置**（在 `.env` 文件中）：
-   - `vsce_token`: VS Code Marketplace 的 Personal Access Token
+   - `pat`: VS Code Marketplace 的 Personal Access Token
    - `ovsx_token`: Open VSX Registry 的 Access Token
 
 2. **工具安装**：
@@ -38,14 +38,16 @@ npx vsce package
 ### 2. 发布到 VS Code Marketplace
 
 ```bash
-source .env && npx vsce publish -p $vsce_token
+source .env && NODE_TLS_REJECT_UNAUTHORIZED=0 npx vsce publish -p $pat
 ```
 
 或使用已打包的 vsix 文件：
 
 ```bash
-source .env && npx vsce publish --packagePath <name>.vsix -p $vsce_token
+source .env && NODE_TLS_REJECT_UNAUTHORIZED=0 npx vsce publish --packagePath <name>.vsix -p $pat
 ```
+
+> 注意：`NODE_TLS_REJECT_UNAUTHORIZED=0` 用于解决某些网络环境下的 SSL 证书验证问题。
 
 ### 3. 发布到 Open VSX Registry
 
@@ -59,7 +61,7 @@ source .env && ovsx publish <name>.vsix -p $ovsx_token
 # 打包并发布到两个市场
 npx vsce package && \
 source .env && \
-npx vsce publish -p $vsce_token && \
+NODE_TLS_REJECT_UNAUTHORIZED=0 npx vsce publish -p $pat && \
 ovsx publish *.vsix -p $ovsx_token
 ```
 
