@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.4] - 2026-01-28
+
+### Added
+- 🛡️ Protected Files feature - warn or confirm when modifying important config files
+- Settings button in sidebar header for quick access to ReCode settings
+- New config: `recode.protectedFiles` - glob patterns for protected files
+- New config: `recode.protectedFileAction` - action when protected file is modified (none/notify/confirm)
+
+### Changed
+- Removed refresh button (auto-refresh is sufficient)
+
 ## [0.1.3] - 2026-01-28
 
 ### Added

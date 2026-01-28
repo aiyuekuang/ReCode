@@ -11,5 +11,10 @@
   "config.enabled.description": "Enable automatic change tracking",
   "config.debounceDelay.description": "Debounce delay in milliseconds",
   "config.maxHistorySize.description": "Maximum number of changes to keep",
-  "config.retentionDays.description": "Number of days to retain change history (1-365)"
+  "config.retentionDays.description": "Number of days to retain change history (1-365)",
+  "config.protectedFiles.description": "Glob patterns for protected files that trigger warnings on modification. Note: Files in .gitignore will not be monitored.",
+  "config.protectedFileAction.description": "Action to take when a protected file is modified",
+  "config.protectedFileAction.none": "No action (disabled)",
+  "config.protectedFileAction.notify": "Show notification only (non-blocking)",
+  "config.protectedFileAction.confirm": "Require confirmation before recording"
 }

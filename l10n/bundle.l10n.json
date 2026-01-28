@@ -44,5 +44,10 @@
   "{0} hours ago": "{0} hours ago",
   "Yesterday": "Yesterday",
   "{0} days ago": "{0} days ago",
-  "Rolled back {0} records": "Rolled back {0} records"
+  "Rolled back {0} records": "Rolled back {0} records",
+  "Protected file modified: {0}": "Protected file modified: {0}",
+  "Protected file \"{0}\" was modified. Record this change?": "Protected file \"{0}\" was modified. Record this change?",
+  "Record": "Record",
+  "Skip": "Skip",
+  "Settings": "Settings"
 }

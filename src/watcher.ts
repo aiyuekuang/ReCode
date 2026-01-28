@@ -245,7 +245,7 @@ export class FileWatcher {
     this.debounceTimers.set(filePath, timer);
   }
 
-  private recordChange(filePath: string) {
+  private async recordChange(filePath: string) {
     try {
       // 如果缓存中没有，说明这是首次跟踪该文件，oldContent 为空
       const oldContent = this.fileCache.get(filePath) || '';
@@ -260,6 +260,20 @@ export class FileWatcher {
       // 获取操作上下文（配置驱动）
       const ctx = this.pendingOperations.get(filePath);
       this.pendingOperations.delete(filePath);
+
+      // 配置驱动：检查是否为受保护文件（回滚/恢复操作跳过检查）
+      const relativePath = path.relative(this.workspaceRoot, filePath);
+      if (!ctx?.skipRecording && !ctx?.operationType) {
+        if (this.isProtectedFile(relativePath)) {
+          const shouldRecord = await this.handleProtectedFile(relativePath);
+          if (!shouldRecord) {
+            // 用户选择跳过，但仍然更新缓存以避免下次重复提示
+            this.fileCache.set(filePath, newContent);
+            console.log(`ReCode: Skipped recording for ${relativePath} - user declined`);
+            return;
+          }
+        }
+      }
       
       // 如果配置了跳过记录（恢复操作），则只更新缓存
       if (ctx?.skipRecording) {
@@ -276,9 +290,6 @@ export class FileWatcher {
       // 生成 diff
       const diff = this.generateDiff(oldContent, newContent, filePath);
       const { linesAdded, linesRemoved } = this.countDiffLines(diff);
-
-      // 存入数据库
-      const relativePath = path.relative(this.workspaceRoot, filePath);
       const changeId = this.db.insertChange(
         relativePath,
         oldContent,
@@ -391,5 +402,67 @@ export class FileWatcher {
     }
 
     return { linesAdded, linesRemoved };
+  }
+
+  /**
+   * 检查文件是否为受保护文件（配置驱动）
+   */
+  private isProtectedFile(relativePath: string): boolean {
+    const patterns = vscode.workspace
+      .getConfiguration('recode')
+      .get<string[]>('protectedFiles', []);
+    
+    // 获取文件名（不含路径）
+    const fileName = path.basename(relativePath);
+    
+    return patterns.some(pattern => {
+      // 将 glob 模式转换为正则表达式
+      const regexPattern = pattern
+        .replace(/\./g, '\\.')             // 转义 .
+        .replace(/\*\*/g, '{{GLOBSTAR}}') // 保留 **
+        .replace(/\*/g, '[^/]*')          // * 匹配非 /
+        .replace(/{{GLOBSTAR}}/g, '.*')   // ** 匹配任意
+        .replace(/\?/g, '[^/]');          // ? 匹配单字符
+      
+      try {
+        const regex = new RegExp(`^${regexPattern}$`);
+        // 同时匹配文件名和相对路径
+        return regex.test(fileName) || regex.test(relativePath);
+      } catch {
+        return false;
+      }
+    });
+  }
+
+  /**
+   * 处理受保护文件的修改（配置驱动）
+   * @returns true = 继续记录, false = 跳过记录
+   */
+  private async handleProtectedFile(relativePath: string): Promise<boolean> {
+    const action = vscode.workspace
+      .getConfiguration('recode')
+      .get<string>('protectedFileAction', 'notify');
+    
+    if (action === 'none') {
+      return true; // 禁用保护，继续记录
+    }
+    
+    if (action === 'confirm') {
+      // 确认模式：弹出对话框要求用户确认
+      const recordText = vscode.l10n.t('Record');
+      const result = await vscode.window.showWarningMessage(
+        vscode.l10n.t('Protected file "{0}" was modified. Record this change?', relativePath),
+        { modal: true },
+        recordText,
+        vscode.l10n.t('Skip')
+      );
+      return result === recordText;
+    }
+    
+    // notify 模式：仅显示通知，不阻断
+    vscode.window.showWarningMessage(
+      vscode.l10n.t('Protected file modified: {0}', relativePath)
+    );
+    return true;
   }
 }

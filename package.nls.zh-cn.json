@@ -11,5 +11,10 @@
   "config.enabled.description": "启用/禁用自动变更追踪",
   "config.debounceDelay.description": "防抖延迟（毫秒）",
   "config.maxHistorySize.description": "最大保留记录数",
-  "config.retentionDays.description": "历史记录保留天数 (1-365)"
+  "config.retentionDays.description": "历史记录保留天数 (1-365)",
+  "config.protectedFiles.description": "受保护文件的 glob 模式，修改时会触发警告。注意：.gitignore 中的文件不会被监听",
+  "config.protectedFileAction.description": "修改受保护文件时的处理方式",
+  "config.protectedFileAction.none": "不处理（禁用）",
+  "config.protectedFileAction.notify": "仅显示通知（不阻断）",
+  "config.protectedFileAction.confirm": "需要确认才记录"
 }

@@ -44,5 +44,10 @@
   "{0} hours ago": "{0}小时前",
   "Yesterday": "昨天",
   "{0} days ago": "{0}天前",
-  "Rolled back {0} records": "回滚了 {0} 条记录"
+  "Rolled back {0} records": "回滚了 {0} 条记录",
+  "Protected file modified: {0}": "⚠️ 受保护文件被修改: {0}",
+  "Protected file \"{0}\" was modified. Record this change?": "受保护文件 \"{0}\" 已被修改，是否记录此变更？",
+  "Record": "记录",
+  "Skip": "跳过",
+  "Settings": "设置"
 }

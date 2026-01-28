@@ -16,6 +16,7 @@ Automatically track code changes and rollback to any version with one click. **D
 - 🔀 **Multi-Workspace Support** - Monitor multiple workspaces simultaneously
 - ⚙️ **Configurable** - Customize retention days, max history size, etc.
 - 🎯 **Universal Compatibility** - Works with Cursor, Copilot, Claude, and all AI tools
+- 🛡️ **Protected Files** - Warn or confirm when modifying important config files
 
 ## 📥 Installation
 
@@ -143,6 +144,8 @@ Search for `recode` in VS Code settings:
 | `recode.retentionDays` | `15` | Days to retain change history (1-365) |
 | `recode.maxHistorySize` | `1000` | Maximum number of records to keep |
 | `recode.debounceDelay` | `2000` | Debounce delay in milliseconds |
+| `recode.protectedFiles` | `[]` | Glob patterns for protected files (e.g. `package.json`, `.env*`) |
+| `recode.protectedFileAction` | `notify` | Action when protected file is modified: `none`, `notify`, `confirm` |
 
 ## 🔧 Commands
 

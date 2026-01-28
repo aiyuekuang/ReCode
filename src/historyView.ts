@@ -57,11 +57,11 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         case 'viewDiff':
           await this.handleViewDiff(data.changeId, data.workspaceName);
           break;
-        case 'refresh':
-          this.refresh();
-          break;
         case 'clearHistory':
           await this.handleClearHistory();
+          break;
+        case 'openSettings':
+          vscode.commands.executeCommand('workbench.action.openSettings', 'recode');
           break;
       }
     });
@@ -1226,18 +1226,18 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       <div class="header">
         <div class="header-title">
           <i class="codicon codicon-history"></i>
-          <span>变更历史</span>
+          <span>${vscode.l10n.t('Change History')}</span>
         </div>
         <div style="display: flex; gap: 4px;">
-          <button id="batchRollbackBtn" class="refresh-btn batch-rollback-btn" onclick="batchRollback()" title="批量回滚" style="display: none;">
+          <button id="batchRollbackBtn" class="refresh-btn batch-rollback-btn" onclick="batchRollback()" title="${vscode.l10n.t('Batch Rollback')}" style="display: none;">
             <i class="codicon codicon-discard"></i>
             <span class="batch-count">0</span>
           </button>
-          <button class="refresh-btn" onclick="clearHistory()" title="清空历史">
+          <button class="refresh-btn" onclick="clearHistory()" title="${vscode.l10n.t('Clear History')}">
             <i class="codicon codicon-trash"></i>
           </button>
-          <button class="refresh-btn" onclick="refresh()" title="刷新">
-            <i class="codicon codicon-refresh"></i>
+          <button class="refresh-btn" onclick="openSettings()" title="${vscode.l10n.t('Settings')}">
+            <i class="codicon codicon-settings-gear"></i>
           </button>
         </div>
       </div>
@@ -1619,12 +1619,12 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           vscode.postMessage({ type: 'viewDiff', changeId, workspaceName });
         }
         
-        function refresh() {
-          vscode.postMessage({ type: 'refresh' });
-        }
-        
         function clearHistory() {
           vscode.postMessage({ type: 'clearHistory' });
+        }
+        
+        function openSettings() {
+          vscode.postMessage({ type: 'openSettings' });
         }
         
         // 配置驱动：hover 图标时高亮被回滚的记录 + 显示 tooltip
