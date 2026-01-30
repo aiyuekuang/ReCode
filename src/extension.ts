@@ -4,6 +4,7 @@ import * as path from 'path';
 import { ReCode } from './database';
 import { FileWatcher } from './watcher';
 import { HistoryViewProvider } from './historyView';
+import { TimelinePanel } from './timelineView';
 
 // 支持多工作区
 interface WorkspaceInstance {
@@ -85,6 +86,99 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
       vscode.commands.registerCommand('recode.refreshView', () => {
         historyViewProvider.refresh();
+      })
+    );
+
+    // 注册时间轴命令（配置驱动：通过 recode.timeline.enabled 控制菜单显示）
+    context.subscriptions.push(
+      vscode.commands.registerCommand('recode.showTimeline', async (uri: vscode.Uri) => {
+        // 获取文件路径
+        let filePath: string;
+        if (uri) {
+          filePath = uri.fsPath;
+        } else if (vscode.window.activeTextEditor) {
+          filePath = vscode.window.activeTextEditor.document.uri.fsPath;
+        } else {
+          vscode.window.showWarningMessage(vscode.l10n.t('Please open a file first'));
+          return;
+        }
+
+        // 找到对应的工作区
+        const workspaceFolder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(filePath));
+        if (!workspaceFolder) {
+          vscode.window.showWarningMessage(vscode.l10n.t('File is not in any workspace'));
+          return;
+        }
+
+        const workspaceRoot = workspaceFolder.uri.fsPath;
+        
+        // 打开时间轴面板
+        TimelinePanel.createOrShow(
+          context.extensionUri,
+          filePath,
+          workspaceRoot,
+          workspaceInstances
+        );
+      })
+    );
+
+    // 注册从时间轴回滚的内部命令
+    context.subscriptions.push(
+      vscode.commands.registerCommand('recode.rollbackFromTimeline', async (changeId: number, workspaceRoot: string) => {
+        const instance = workspaceInstances.get(workspaceRoot);
+        if (!instance) {
+          vscode.window.showErrorMessage(vscode.l10n.t('Cannot find workspace instance'));
+          return;
+        }
+
+        const change = instance.db.getChangeById(changeId);
+        if (!change) {
+          vscode.window.showErrorMessage(vscode.l10n.t('Cannot find change record #{0}', changeId));
+          return;
+        }
+
+        // 确认回滚
+        const confirmRollbackText = vscode.l10n.t('Confirm Rollback');
+        const answer = await vscode.window.showWarningMessage(
+          vscode.l10n.t('Rollback to version #{0}?', changeId),
+          { modal: true },
+          confirmRollbackText
+        );
+
+        if (answer !== confirmRollbackText) {
+          return;
+        }
+
+        try {
+          const filePath = path.join(workspaceRoot, change.file_path);
+          const currentContent = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf-8') : '';
+
+          // 创建回滚记录
+          const diff = `@@ rollback to #${changeId} @@`;
+          const rollbackId = instance.db.insertChange(
+            change.file_path,
+            currentContent,
+            change.new_content,
+            diff,
+            0,
+            0,
+            null,
+            'rollback',
+            changeId
+          );
+
+          // 标记被覆盖的记录
+          instance.db.markCoveredByRollback(change.file_path, rollbackId, changeId);
+
+          // 写入文件（跳过 watcher 记录）
+          instance.watcher.setOperationContext(filePath, { skipRecording: true });
+          fs.writeFileSync(filePath, change.new_content, 'utf-8');
+
+          vscode.window.showInformationMessage(vscode.l10n.t('Rolled back to #{0} {1}', changeId, change.file_path));
+          historyViewProvider.refresh();
+        } catch (error) {
+          vscode.window.showErrorMessage(vscode.l10n.t('Rollback failed: {0}', String(error)));
+        }
       })
     );
 

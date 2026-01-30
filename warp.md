@@ -2,6 +2,17 @@
 
 本仓库是 VS Code 扩展 **ReCode - AI Code History Guard** 的代码库。
 
+## 技能列表
+
+本项目定义了以下技能（Skills），请根据任务类型自动启用：
+
+| 技能 | 触发场景 | 定义文件 |
+|------|----------|----------|
+| **config-driven-dev** | 新功能、重构、修 bug、任何代码改动 | `.claude/skills/config-driven-dev/SKILL.md` |
+| **publish** | 发布、上线、打包、推送市场 | `.claude/skills/publish/SKILL.md` |
+
+---
+
 ## 开发约定：统一走“配置驱动开发技能”
 
 本项目的所有开发任务（新功能、重构、修 bug）统一遵守下面的约定：
@@ -27,12 +38,26 @@
      - 默认值
      - 对行为的影响（安全性 / 性能 / 体验）
 
+---
+
+## 发布约定：启用“publish”技能
+
+当用户说“发布”、“上线”、“打包”、“publish”、“推送”等关键词时，必须启用 `publish` 技能：
+
+1. **技能定义文件：** `.claude/skills/publish/SKILL.md`
+2. **执行流程：**
+   - 按照技能文件中的步骤，同时发布到 VS Code Marketplace 和 Open VSX Registry
+   - 使用项目根目录下的 `.env` 文件中的 Token
+
+---
+
 ## 在 Warp 中使用的方式
 
 - 在 Warp 里唤起 Agent / AI 助手时，如果是本仓库：
-  - 可以在需求前加一句：**“按 config-driven-dev 开发技能来设计和实现”**，以提醒助手遵守统一规范。
+  - **开发任务：** 自动启用 `config-driven-dev` 技能
+  - **发布任务：** 自动启用 `publish` 技能
 - 助手在回答时，应：
-  - 先给出“配置驱动”的设计（配置项、默认值、范围、变更监听等）
-  - 再给出对应的代码修改方案，而不是直接从业务逻辑改起。
+  - 先读取对应的技能文件
+  - 按照技能文件中的流程和原则执行任务
 
-> 简单说：这个仓库里，所有开发默认走 `.claude/skills/config-driven-dev/SKILL.md` 的规范。
+> 简单说：这个仓库里，所有开发默认走 `config-driven-dev` 技能，所有发布默认走 `publish` 技能。

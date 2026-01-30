@@ -125,11 +125,24 @@ export class ReCode {
     return lastId as number;
   }
 
-  getRecentChanges(limit: number = 100): CodeChange[] {
-    const result = this.db.exec(
-      `SELECT * FROM changes ORDER BY id DESC LIMIT ?`,
-      [limit]
-    );
+  getRecentChanges(limit: number = 100, days?: number): CodeChange[] {
+    let sql = `SELECT * FROM changes`;
+    const params: any[] = [];
+    
+    // 配置驱动：按自然日过滤（以 0 点为界，仅影响显示，不影响存储）
+    if (days && days > 0) {
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - days + 1); // 今天=1天，近 3 天=今天+前 2 天
+      cutoffDate.setHours(0, 0, 0, 0); // 设置为当天 0 点
+      const cutoffISO = cutoffDate.toISOString();
+      sql += ` WHERE timestamp >= ?`;
+      params.push(cutoffISO);
+    }
+    
+    sql += ` ORDER BY id DESC LIMIT ?`;
+    params.push(limit);
+    
+    const result = this.db.exec(sql, params);
 
     if (result.length === 0) {
       return [];
@@ -152,6 +165,25 @@ export class ReCode {
   getChangesByFile(filePath: string, limit: number = 50): CodeChange[] {
     const result = this.db.exec(
       `SELECT * FROM changes WHERE file_path = ? ORDER BY id DESC LIMIT ?`,
+      [filePath, limit]
+    );
+
+    if (result.length === 0) {
+      return [];
+    }
+
+    return this.rowsToObjects(result[0]) as CodeChange[];
+  }
+
+  /**
+   * 获取单个文件的完整时间线（按时间正序）
+   * 配置驱动：用于时间轴视图
+   * @param filePath 文件路径
+   * @param limit 最大记录数（配置项 recode.timeline.maxNodes）
+   */
+  getFileTimeline(filePath: string, limit: number = 100): CodeChange[] {
+    const result = this.db.exec(
+      `SELECT * FROM changes WHERE file_path = ? ORDER BY id ASC LIMIT ?`,
       [filePath, limit]
     );
 
@@ -299,6 +331,75 @@ export class ReCode {
     
     this.save();
     return totalCount;
+  }
+
+  /**
+   * 获取变更统计信息（配置驱动：今日/本周统计、文件活跃度排行榜）
+   * @param days 统计天数（1=今天，7=本周）
+   * @param topN 排行榜数量
+   */
+  getChangeStats(days: number = 1, topN: number = 5): {
+    totalChanges: number;
+    linesAdded: number;
+    linesRemoved: number;
+    fileCount: number;
+    topFiles: Array<{ file_path: string; count: number; lines_added: number; lines_removed: number }>;
+  } {
+    // 计算截止时间
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - days + 1);
+    cutoffDate.setHours(0, 0, 0, 0);
+    const cutoffISO = cutoffDate.toISOString();
+
+    // 总体统计
+    const statsResult = this.db.exec(
+      `SELECT 
+        COUNT(*) as total_changes,
+        COALESCE(SUM(lines_added), 0) as lines_added,
+        COALESCE(SUM(lines_removed), 0) as lines_removed,
+        COUNT(DISTINCT file_path) as file_count
+      FROM changes 
+      WHERE timestamp >= ? AND operation_type = 'edit'`,
+      [cutoffISO]
+    );
+
+    let totalChanges = 0, linesAdded = 0, linesRemoved = 0, fileCount = 0;
+    if (statsResult.length > 0 && statsResult[0].values.length > 0) {
+      const row = statsResult[0].values[0];
+      totalChanges = row[0] as number || 0;
+      linesAdded = row[1] as number || 0;
+      linesRemoved = row[2] as number || 0;
+      fileCount = row[3] as number || 0;
+    }
+
+    // 文件活跃度排行榜
+    const topFilesResult = this.db.exec(
+      `SELECT 
+        file_path,
+        COUNT(*) as count,
+        COALESCE(SUM(lines_added), 0) as lines_added,
+        COALESCE(SUM(lines_removed), 0) as lines_removed
+      FROM changes 
+      WHERE timestamp >= ? AND operation_type = 'edit'
+      GROUP BY file_path
+      ORDER BY count DESC
+      LIMIT ?`,
+      [cutoffISO, topN]
+    );
+
+    const topFiles: Array<{ file_path: string; count: number; lines_added: number; lines_removed: number }> = [];
+    if (topFilesResult.length > 0) {
+      for (const row of topFilesResult[0].values) {
+        topFiles.push({
+          file_path: row[0] as string,
+          count: row[1] as number,
+          lines_added: row[2] as number,
+          lines_removed: row[3] as number
+        });
+      }
+    }
+
+    return { totalChanges, linesAdded, linesRemoved, fileCount, topFiles };
   }
 
   /**

@@ -17,6 +17,11 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
   private static readonly REFRESH_DELAY_MS = 300;  // 文件系统同步延迟
   private static readonly DISPOSE_DELAY_MS = 100;  // 临时资源清理延迟
   private static readonly MAX_HISTORY = 100;  // 最大历史记录数
+  
+  // UI 状态：查看天数（仅影响显示，不影响存储）
+  private viewDays: number = 1;
+  // UI 状态：搜索关键词
+  private searchKeyword: string = '';
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -63,13 +68,23 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         case 'openSettings':
           vscode.commands.executeCommand('workbench.action.openSettings', 'recode');
           break;
+        case 'changeViewDays':
+          this.handleChangeViewDays(data.days);
+          break;
+        case 'search':
+          this.handleSearch(data.keyword);
+          break;
       }
     });
   }
 
-  public refresh() {
+  public refresh(restoreSearchFocus: boolean = false) {
     if (this._view) {
       this._view.webview.html = this._getHtmlForWebview(this._view.webview);
+      // 如果需要恢复搜索框焦点
+      if (restoreSearchFocus && this.searchKeyword) {
+        this._view.webview.postMessage({ type: 'restoreSearchFocus' });
+      }
     }
   }
 
@@ -89,6 +104,22 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       this.refresh();
       vscode.window.showInformationMessage(vscode.l10n.t('Cleared {0} history records', totalDeleted));
     }
+  }
+
+  /**
+   * 更改查看天数（仅影响 UI 显示）
+   */
+  private handleChangeViewDays(days: number) {
+    this.viewDays = days;
+    this.refresh();
+  }
+
+  /**
+   * 处理搜索（配置驱动：搜索文件名和变更内容）
+   */
+  private handleSearch(keyword: string) {
+    this.searchKeyword = keyword.trim().toLowerCase();
+    this.refresh(true); // 刷新后恢复搜索框焦点
   }
 
   /**
@@ -414,9 +445,12 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
 
     const allChanges: Array<CodeChange & { workspaceName: string; isLatestForFile: boolean; canRestore: boolean; isRollbackTarget: boolean; rollbackedRecords?: CodeChange[] }> = [];
     
+    // 配置驱动：使用 maxHistorySize 配置项
+    const maxHistorySize = vscode.workspace.getConfiguration('recode').get<number>('maxHistorySize', 1000);
+    
     for (const [root, instance] of this.workspaceInstances) {
       const workspaceName = path.basename(root);
-      const changes = instance.db.getRecentChanges(100);
+      const changes = instance.db.getRecentChanges(maxHistorySize, this.viewDays);
       
       // 计算每个文件的最新记录 ID
       const latestIdByFile = new Map<string, number>();
@@ -475,8 +509,70 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
     });
 
-    const groups = this.groupChangesByTime(allChanges);
+    // 配置驱动：搜索过滤
+    let filteredChanges = allChanges;
+    if (this.searchKeyword) {
+      filteredChanges = allChanges.filter(change => {
+        // 搜索文件名
+        if (change.file_path.toLowerCase().includes(this.searchKeyword)) {
+          return true;
+        }
+        // 搜索变更内容
+        if (change.new_content && change.new_content.toLowerCase().includes(this.searchKeyword)) {
+          return true;
+        }
+        if (change.old_content && change.old_content.toLowerCase().includes(this.searchKeyword)) {
+          return true;
+        }
+        return false;
+      });
+    }
+
+    const groups = this.groupChangesByTime(filteredChanges);
     const showTabs = workspaces.length > 1;
+
+    // 配置驱动：获取统计数据
+    const todayStats = { totalChanges: 0, linesAdded: 0, linesRemoved: 0, fileCount: 0, topFiles: [] as Array<{ file_path: string; count: number; lines_added: number; lines_removed: number }> };
+    const weekStats = { totalChanges: 0, linesAdded: 0, linesRemoved: 0, fileCount: 0, topFiles: [] as Array<{ file_path: string; count: number; lines_added: number; lines_removed: number }> };
+    
+    for (const [, instance] of this.workspaceInstances) {
+      const today = instance.db.getChangeStats(1, 5);
+      const week = instance.db.getChangeStats(7, 5);
+      
+      todayStats.totalChanges += today.totalChanges;
+      todayStats.linesAdded += today.linesAdded;
+      todayStats.linesRemoved += today.linesRemoved;
+      todayStats.fileCount += today.fileCount;
+      todayStats.topFiles.push(...today.topFiles);
+      
+      weekStats.totalChanges += week.totalChanges;
+      weekStats.linesAdded += week.linesAdded;
+      weekStats.linesRemoved += week.linesRemoved;
+      weekStats.fileCount += week.fileCount;
+      weekStats.topFiles.push(...week.topFiles);
+    }
+    
+    // 合并并重新排序 topFiles
+    const mergeTopFiles = (files: typeof todayStats.topFiles, limit: number) => {
+      const merged = new Map<string, { count: number; lines_added: number; lines_removed: number }>();
+      for (const f of files) {
+        const existing = merged.get(f.file_path);
+        if (existing) {
+          existing.count += f.count;
+          existing.lines_added += f.lines_added;
+          existing.lines_removed += f.lines_removed;
+        } else {
+          merged.set(f.file_path, { count: f.count, lines_added: f.lines_added, lines_removed: f.lines_removed });
+        }
+      }
+      return Array.from(merged.entries())
+        .map(([file_path, stats]) => ({ file_path, ...stats }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, limit);
+    };
+    
+    todayStats.topFiles = mergeTopFiles(todayStats.topFiles, 5);
+    weekStats.topFiles = mergeTopFiles(weekStats.topFiles, 5);
 
     // 获取 Codicon 字体 URI
     const codiconCssUri = webview.asWebviewUri(
@@ -1220,6 +1316,310 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           font-weight: 600;
         }
         
+        /* 查看天数选择器 */
+        .view-days-select {
+          background: var(--vscode-dropdown-background);
+          color: var(--vscode-dropdown-foreground);
+          border: 1px solid var(--vscode-dropdown-border);
+          padding: 3px 6px;
+          border-radius: 4px;
+          font-size: 11px;
+          cursor: pointer;
+          outline: none;
+        }
+        
+        .view-days-select:hover {
+          border-color: var(--vscode-focusBorder);
+        }
+        
+        .view-days-select:focus {
+          border-color: var(--vscode-focusBorder);
+        }
+        
+        /* 搜索框样式 - 内联展开式 */
+        .search-wrapper {
+          display: flex;
+          align-items: center;
+          position: relative;
+        }
+        
+        .search-trigger {
+          background: transparent;
+          color: var(--vscode-foreground);
+          border: none;
+          padding: 4px 8px;
+          cursor: pointer;
+          border-radius: 4px;
+          display: flex;
+          align-items: center;
+          opacity: 0.8;
+          transition: opacity 0.2s, background 0.2s;
+        }
+        
+        .search-trigger:hover {
+          background: var(--vscode-toolbar-hoverBackground);
+          opacity: 1;
+        }
+        
+        .search-trigger.active {
+          color: var(--vscode-focusBorder);
+          opacity: 1;
+        }
+        
+        .search-inline {
+          display: none;
+          align-items: center;
+          background: var(--vscode-input-background);
+          border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+          border-radius: 4px;
+          padding: 0 6px;
+          margin-right: 4px;
+          width: 0;
+          overflow: hidden;
+          transition: width 0.2s ease, border-color 0.2s ease;
+        }
+        
+        .search-inline.show {
+          display: flex;
+          width: 140px;
+        }
+        
+        .search-inline:focus-within {
+          border-color: var(--vscode-input-border, rgba(128, 128, 128, 0.5));
+        }
+        
+        .search-inline-input {
+          flex: 1;
+          background: transparent;
+          border: none;
+          color: var(--vscode-input-foreground);
+          font-size: 11px;
+          padding: 4px 0;
+          outline: none;
+          width: 100%;
+          min-width: 0;
+        }
+        
+        .search-inline-input::placeholder {
+          color: var(--vscode-input-placeholderForeground);
+        }
+        
+        .search-inline-clear {
+          background: none;
+          border: none;
+          color: var(--vscode-input-placeholderForeground);
+          cursor: pointer;
+          padding: 2px;
+          display: none;
+          font-size: 10px;
+        }
+        
+        .search-inline-clear.show {
+          display: block;
+        }
+        
+        .search-inline-clear:hover {
+          color: var(--vscode-foreground);
+        }
+        
+        .search-result-badge {
+          background: var(--vscode-badge-background);
+          color: var(--vscode-badge-foreground);
+          font-size: 10px;
+          padding: 1px 5px;
+          border-radius: 8px;
+          margin-left: 4px;
+        }
+        
+        /* 统计面板样式 */
+        .stats-panel {
+          border-bottom: 1px solid var(--vscode-panel-border);
+          background: var(--vscode-sideBar-background);
+        }
+        
+        .stats-header {
+          padding: 8px 16px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          cursor: pointer;
+          user-select: none;
+        }
+        
+        .stats-header:hover {
+          background: var(--vscode-list-hoverBackground);
+        }
+        
+        .stats-header-title {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 12px;
+          font-weight: 500;
+        }
+        
+        .stats-toggle-icon {
+          font-size: 12px;
+          transition: transform 0.2s;
+        }
+        
+        .stats-panel.collapsed .stats-toggle-icon {
+          transform: rotate(-90deg);
+        }
+        
+        .stats-panel.collapsed .stats-content {
+          display: none;
+        }
+        
+        .stats-content {
+          padding: 0 16px 12px;
+        }
+        
+        .stats-tabs {
+          display: flex;
+          gap: 2px;
+          margin-bottom: 12px;
+        }
+        
+        .stats-tab {
+          flex: 1;
+          padding: 6px 8px;
+          background: transparent;
+          border: none;
+          color: var(--vscode-descriptionForeground);
+          font-size: 11px;
+          cursor: pointer;
+          border-radius: 4px;
+          transition: background 0.1s, color 0.1s;
+        }
+        
+        .stats-tab:hover {
+          background: var(--vscode-list-hoverBackground);
+        }
+        
+        .stats-tab.active {
+          background: var(--vscode-button-secondaryBackground);
+          color: var(--vscode-foreground);
+        }
+        
+        .stats-summary {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 8px;
+          margin-bottom: 12px;
+        }
+        
+        .stats-card {
+          background: var(--vscode-editor-background);
+          border: 1px solid var(--vscode-panel-border);
+          border-radius: 4px;
+          padding: 8px;
+          text-align: center;
+        }
+        
+        .stats-card-value {
+          font-size: 18px;
+          font-weight: 600;
+          font-family: var(--vscode-editor-font-family);
+          color: var(--vscode-foreground);
+        }
+        
+        .stats-card-label {
+          font-size: 10px;
+          color: var(--vscode-descriptionForeground);
+          margin-top: 2px;
+        }
+        
+        .stats-leaderboard {
+          background: var(--vscode-editor-background);
+          border: 1px solid var(--vscode-panel-border);
+          border-radius: 4px;
+          overflow: hidden;
+        }
+        
+        .stats-leaderboard-title {
+          padding: 6px 10px;
+          font-size: 11px;
+          font-weight: 500;
+          background: var(--vscode-sideBarSectionHeader-background);
+          border-bottom: 1px solid var(--vscode-panel-border);
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        
+        .stats-leaderboard-empty {
+          padding: 12px;
+          text-align: center;
+          color: var(--vscode-descriptionForeground);
+          font-size: 11px;
+        }
+        
+        .stats-file-row {
+          display: flex;
+          align-items: center;
+          padding: 6px 10px;
+          gap: 8px;
+          border-bottom: 1px solid var(--vscode-panel-border);
+        }
+        
+        .stats-file-row:last-child {
+          border-bottom: none;
+        }
+        
+        .stats-file-rank {
+          width: 18px;
+          height: 18px;
+          border-radius: 50%;
+          background: var(--vscode-badge-background);
+          color: var(--vscode-badge-foreground);
+          font-size: 10px;
+          font-weight: 600;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+        }
+        
+        .stats-file-rank.gold {
+          background: #cca700;
+          color: #000;
+        }
+        
+        .stats-file-rank.silver {
+          background: #9e9e9e;
+          color: #000;
+        }
+        
+        .stats-file-rank.bronze {
+          background: #cd7f32;
+          color: #000;
+        }
+        
+        .stats-file-name {
+          flex: 1;
+          font-size: 11px;
+          font-family: var(--vscode-editor-font-family);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        
+        .stats-file-count {
+          font-size: 11px;
+          font-family: var(--vscode-editor-font-family);
+          color: var(--vscode-descriptionForeground);
+          flex-shrink: 0;
+        }
+        
+        .stats-file-lines {
+          font-size: 10px;
+          font-family: var(--vscode-editor-font-family);
+          display: flex;
+          gap: 4px;
+          flex-shrink: 0;
+        }
+        
       </style>
     </head>
     <body>
@@ -1228,7 +1628,28 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           <i class="codicon codicon-history"></i>
           <span>${vscode.l10n.t('Change History')}</span>
         </div>
-        <div style="display: flex; gap: 4px;">
+        <div style="display: flex; gap: 4px; align-items: center;">
+          <!-- 内联搜索框 -->
+          <div class="search-wrapper">
+            <div class="search-inline ${this.searchKeyword ? 'show' : ''}" id="searchInline">
+              <input type="text" class="search-inline-input" id="searchInput" 
+                     placeholder="${vscode.l10n.t('Search...')}" 
+                     value="${this.escapeHtml(this.searchKeyword)}"
+                     oninput="handleSearchInput(this.value)"
+                     onblur="handleSearchBlur()">
+              <button class="search-inline-clear ${this.searchKeyword ? 'show' : ''}" onclick="clearSearch()">
+                <i class="codicon codicon-close"></i>
+              </button>
+            </div>
+            <button class="search-trigger ${this.searchKeyword ? 'active' : ''}" onclick="toggleSearch()" title="${vscode.l10n.t('Search')}" id="searchTrigger">
+              <i class="codicon codicon-search"></i>
+              ${this.searchKeyword ? `<span class="search-result-badge">${filteredChanges.length}</span>` : ''}
+            </button>
+          </div>
+          <select id="viewDaysSelect" class="view-days-select" onchange="changeViewDays(this.value)" title="${vscode.l10n.t('View Range')}">
+            <option value="1" ${this.viewDays === 1 ? 'selected' : ''}>${vscode.l10n.t('Today')}</option>
+            ${[3, 7, 15].map(d => `<option value="${d}" ${this.viewDays === d ? 'selected' : ''}>${vscode.l10n.t('Last {0} days', d)}</option>`).join('')}
+          </select>
           <button id="batchRollbackBtn" class="refresh-btn batch-rollback-btn" onclick="batchRollback()" title="${vscode.l10n.t('Batch Rollback')}" style="display: none;">
             <i class="codicon codicon-discard"></i>
             <span class="batch-count">0</span>
@@ -1242,20 +1663,119 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         </div>
       </div>
       
+      <!-- 统计面板 -->
+      <div class="stats-panel collapsed" id="statsPanel">
+        <div class="stats-header" onclick="toggleStatsPanel()">
+          <div class="stats-header-title">
+            <i class="codicon codicon-chevron-down stats-toggle-icon"></i>
+            <i class="codicon codicon-graph"></i>
+            <span>${vscode.l10n.t('Statistics')}</span>
+          </div>
+          <span style="font-size: 11px; color: var(--vscode-descriptionForeground);">
+            ${vscode.l10n.t('Today')}: ${todayStats.totalChanges}
+          </span>
+        </div>
+        <div class="stats-content">
+          <div class="stats-tabs">
+            <button class="stats-tab active" onclick="switchStatsTab('today')">${vscode.l10n.t('Today')}</button>
+            <button class="stats-tab" onclick="switchStatsTab('week')">${vscode.l10n.t('This Week')}</button>
+          </div>
+          
+          <!-- 今日统计 -->
+          <div class="stats-tab-content" id="statsToday">
+            <div class="stats-summary">
+              <div class="stats-card">
+                <div class="stats-card-value">${todayStats.totalChanges}</div>
+                <div class="stats-card-label">${vscode.l10n.t('Changes')}</div>
+              </div>
+              <div class="stats-card">
+                <div class="stats-card-value added">+${todayStats.linesAdded}</div>
+                <div class="stats-card-label">${vscode.l10n.t('Lines Added')}</div>
+              </div>
+              <div class="stats-card">
+                <div class="stats-card-value removed">-${todayStats.linesRemoved}</div>
+                <div class="stats-card-label">${vscode.l10n.t('Lines Removed')}</div>
+              </div>
+            </div>
+            <div class="stats-leaderboard">
+              <div class="stats-leaderboard-title">
+                <i class="codicon codicon-flame"></i>
+                ${vscode.l10n.t('Most Active Files')}
+              </div>
+              ${todayStats.topFiles.length === 0 ? `
+                <div class="stats-leaderboard-empty">${vscode.l10n.t('No changes today')}</div>
+              ` : todayStats.topFiles.map((file, index) => `
+                <div class="stats-file-row">
+                  <span class="stats-file-rank ${index === 0 ? 'gold' : index === 1 ? 'silver' : index === 2 ? 'bronze' : ''}">${index + 1}</span>
+                  <span class="stats-file-name" title="${this.escapeHtml(file.file_path)}">${this.escapeHtml(file.file_path)}</span>
+                  <span class="stats-file-count">${file.count}x</span>
+                  <span class="stats-file-lines">
+                    <span class="added">+${file.lines_added}</span>
+                    <span class="removed">-${file.lines_removed}</span>
+                  </span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+          
+          <!-- 本周统计 -->
+          <div class="stats-tab-content" id="statsWeek" style="display: none;">
+            <div class="stats-summary">
+              <div class="stats-card">
+                <div class="stats-card-value">${weekStats.totalChanges}</div>
+                <div class="stats-card-label">${vscode.l10n.t('Changes')}</div>
+              </div>
+              <div class="stats-card">
+                <div class="stats-card-value added">+${weekStats.linesAdded}</div>
+                <div class="stats-card-label">${vscode.l10n.t('Lines Added')}</div>
+              </div>
+              <div class="stats-card">
+                <div class="stats-card-value removed">-${weekStats.linesRemoved}</div>
+                <div class="stats-card-label">${vscode.l10n.t('Lines Removed')}</div>
+              </div>
+            </div>
+            <div class="stats-leaderboard">
+              <div class="stats-leaderboard-title">
+                <i class="codicon codicon-flame"></i>
+                ${vscode.l10n.t('Most Active Files')}
+              </div>
+              ${weekStats.topFiles.length === 0 ? `
+                <div class="stats-leaderboard-empty">${vscode.l10n.t('No changes this week')}</div>
+              ` : weekStats.topFiles.map((file, index) => `
+                <div class="stats-file-row">
+                  <span class="stats-file-rank ${index === 0 ? 'gold' : index === 1 ? 'silver' : index === 2 ? 'bronze' : ''}">${index + 1}</span>
+                  <span class="stats-file-name" title="${this.escapeHtml(file.file_path)}">${this.escapeHtml(file.file_path)}</span>
+                  <span class="stats-file-count">${file.count}x</span>
+                  <span class="stats-file-lines">
+                    <span class="added">+${file.lines_added}</span>
+                    <span class="removed">-${file.lines_removed}</span>
+                  </span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+      </div>
+      
       ${showTabs ? `
         <div class="tabs-container">
           <button class="tab active" onclick="switchTab('all')" title="显示所有工作区的变更记录">
             <i class="codicon codicon-list-tree"></i>
             <span>全部</span>
-            <span class="tab-count">${allChanges.length}</span>
+            <span class="tab-count">${filteredChanges.length}</span>
           </button>
-          ${workspaces.map(ws => `
+          ${workspaces.map(ws => {
+            // 搜索时显示过滤后的数量
+            const wsFilteredCount = this.searchKeyword 
+              ? filteredChanges.filter((c: any) => c.workspaceName === ws.name).length 
+              : ws.totalChanges;
+            return `
             <button class="tab" onclick="switchTab('${this.escapeHtml(ws.name)}')" title="显示 ${this.escapeHtml(ws.name)} 的变更记录">
               <i class="codicon codicon-folder"></i>
               <span>${this.escapeHtml(ws.name)}</span>
-              <span class="tab-count">${ws.totalChanges}</span>
+              <span class="tab-count">${wsFilteredCount}</span>
             </button>
-          `).join('')}
+          `}).join('')}
         </div>
       ` : ''}
       
@@ -1585,6 +2105,21 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           const message = event.data;
           if (message.type === 'showRollbackModal') {
             showRollbackModal(message.targetChange, message.laterChanges, message.workspaceName);
+          } else if (message.type === 'restoreSearchFocus') {
+            // 恢复搜索框焦点
+            const searchInput = document.getElementById('searchInput');
+            const searchInline = document.getElementById('searchInline');
+            const searchTrigger = document.getElementById('searchTrigger');
+            if (searchInput && searchInline) {
+              searchInline.classList.add('show');
+              if (searchTrigger) searchTrigger.classList.add('active');
+              searchOpen = true;
+              // 延迟聚焦并将光标移到末尾
+              setTimeout(() => {
+                searchInput.focus();
+                searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
+              }, 50);
+            }
           }
         });
         
@@ -1625,6 +2160,10 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         
         function openSettings() {
           vscode.postMessage({ type: 'openSettings' });
+        }
+        
+        function changeViewDays(days) {
+          vscode.postMessage({ type: 'changeViewDays', days: parseInt(days) });
         }
         
         // 配置驱动：hover 图标时高亮被回滚的记录 + 显示 tooltip
@@ -1772,6 +2311,99 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
             workspaceName: rollbackData.workspaceName
           });
           closeModal();
+        }
+        
+        // 搜索功能 - 内联展开式
+        let searchTimeout = null;
+        let searchOpen = false;
+        
+        function toggleSearch() {
+          const searchInline = document.getElementById('searchInline');
+          const searchTrigger = document.getElementById('searchTrigger');
+          const searchInput = document.getElementById('searchInput');
+          
+          searchOpen = !searchOpen;
+          
+          if (searchOpen) {
+            searchInline.classList.add('show');
+            searchTrigger.classList.add('active');
+            // 延迟聚焦，等动画完成
+            setTimeout(() => searchInput.focus(), 50);
+          } else {
+            // 如果没有搜索内容，才收起
+            if (!searchInput.value) {
+              searchInline.classList.remove('show');
+              searchTrigger.classList.remove('active');
+            }
+          }
+        }
+        
+        function handleSearchInput(value) {
+          // 防抖：300ms 后触发搜索
+          if (searchTimeout) {
+            clearTimeout(searchTimeout);
+          }
+          
+          // 显示/隐藏清除按钮
+          const clearBtn = document.querySelector('.search-inline-clear');
+          if (clearBtn) {
+            clearBtn.classList.toggle('show', value.length > 0);
+          }
+          
+          searchTimeout = setTimeout(() => {
+            vscode.postMessage({ type: 'search', keyword: value });
+          }, 300);
+        }
+        
+        function handleSearchBlur() {
+          const searchInput = document.getElementById('searchInput');
+          const searchInline = document.getElementById('searchInline');
+          const searchTrigger = document.getElementById('searchTrigger');
+          
+          // 如果没有搜索内容，延迟收起（避免点击清除按钮时提前收起）
+          setTimeout(() => {
+            if (!searchInput.value && document.activeElement !== searchInput) {
+              searchInline.classList.remove('show');
+              searchTrigger.classList.remove('active');
+              searchOpen = false;
+            }
+          }, 150);
+        }
+        
+        function clearSearch() {
+          const input = document.getElementById('searchInput');
+          const searchInline = document.getElementById('searchInline');
+          const searchTrigger = document.getElementById('searchTrigger');
+          
+          if (input) {
+            input.value = '';
+            input.focus();
+          }
+          const clearBtn = document.querySelector('.search-inline-clear');
+          if (clearBtn) {
+            clearBtn.classList.remove('show');
+          }
+          vscode.postMessage({ type: 'search', keyword: '' });
+        }
+        
+        // 统计面板功能
+        function toggleStatsPanel() {
+          const panel = document.getElementById('statsPanel');
+          if (panel) {
+            panel.classList.toggle('collapsed');
+          }
+        }
+        
+        function switchStatsTab(tab) {
+          // 切换 Tab 按钮样式
+          document.querySelectorAll('.stats-tab').forEach(btn => {
+            btn.classList.remove('active');
+          });
+          event.target.classList.add('active');
+          
+          // 切换内容
+          document.getElementById('statsToday').style.display = tab === 'today' ? '' : 'none';
+          document.getElementById('statsWeek').style.display = tab === 'week' ? '' : 'none';
         }
         
       </script>

@@ -16,5 +16,8 @@
   "config.protectedFileAction.description": "Action to take when a protected file is modified",
   "config.protectedFileAction.none": "No action (disabled)",
   "config.protectedFileAction.notify": "Show notification only (non-blocking)",
-  "config.protectedFileAction.confirm": "Require confirmation before recording"
+  "config.protectedFileAction.confirm": "Require confirmation before recording",
+  "command.showTimeline": "ReCode: Show Timeline",
+  "config.timeline.enabled.description": "Enable timeline view feature",
+  "config.timeline.maxNodes.description": "Maximum number of nodes to display in timeline (10-500)"
 }

@@ -109,10 +109,12 @@ class GitIgnoreParser {
   }
 
   isIgnored(relativePath: string): boolean {
+    // 统一将反斜杠转换为正斜杠，确保 Windows 路径也能正确匹配
+    const normalizedPath = relativePath.replace(/\\/g, '/');
     let ignored = false;
 
     for (const { pattern, negated } of this.patterns) {
-      if (pattern.test(relativePath)) {
+      if (pattern.test(normalizedPath)) {
         ignored = !negated;
       }
     }

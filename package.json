@@ -2,7 +2,7 @@
   "name": "recode",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "0.1.7",
+  "version": "0.1.13",
   "publisher": "aiyuekuang",
   "icon": "images/icon.png",
   "repository": {
@@ -54,6 +54,11 @@
         "command": "recode.clearHistory",
         "title": "%command.clearHistory%",
         "icon": "$(trash)"
+      },
+      {
+        "command": "recode.showTimeline",
+        "title": "%command.showTimeline%",
+        "icon": "$(git-commit)"
       }
     ],
     "viewsContainers": {
@@ -125,8 +130,36 @@
             "%config.protectedFileAction.confirm%"
           ],
           "description": "%config.protectedFileAction.description%"
+        },
+        "recode.timeline.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.timeline.enabled.description%"
+        },
+        "recode.timeline.maxNodes": {
+          "type": "number",
+          "default": 100,
+          "minimum": 10,
+          "maximum": 500,
+          "description": "%config.timeline.maxNodes.description%"
         }
       }
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "recode.showTimeline",
+          "group": "recode@1",
+          "when": "editorTextFocus && config.recode.timeline.enabled"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "recode.showTimeline",
+          "group": "recode@1",
+          "when": "resourceScheme == file && config.recode.timeline.enabled"
+        }
+      ]
     }
   },
   "scripts": {
