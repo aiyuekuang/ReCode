@@ -19,5 +19,7 @@
   "config.protectedFileAction.confirm": "需要确认才记录",
   "command.showTimeline": "ReCode: 查看时间轴",
   "config.timeline.enabled.description": "启用时间轴视图功能",
-  "config.timeline.maxNodes.description": "时间轴最多显示的节点数 (10-500)"
+  "config.timeline.maxNodes.description": "时间轴最多显示的节点数 (10-500)",
+  "config.autoAddGitignore.description": "自动添加 .recode 到 .gitignore（优先检查全局 gitignore 和配置的变体文件）",
+  "config.gitignoreVariants.description": "要检查的 gitignore 文件变体列表（如 .gitignore、.gitignore_local）"
 }

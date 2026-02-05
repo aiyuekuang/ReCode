@@ -19,5 +19,7 @@
   "config.protectedFileAction.confirm": "Require confirmation before recording",
   "command.showTimeline": "ReCode: Show Timeline",
   "config.timeline.enabled.description": "Enable timeline view feature",
-  "config.timeline.maxNodes.description": "Maximum number of nodes to display in timeline (10-500)"
+  "config.timeline.maxNodes.description": "Maximum number of nodes to display in timeline (10-500)",
+  "config.autoAddGitignore.description": "Automatically add .recode to .gitignore (checks global gitignore and configured variants first)",
+  "config.gitignoreVariants.description": "List of gitignore file variants to check (e.g., .gitignore, .gitignore_local)"
 }
