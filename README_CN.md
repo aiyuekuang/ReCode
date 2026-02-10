@@ -188,6 +188,11 @@ v0 ──[修改1]──> v1 ──[修改2]──> v2 ──[修改3]──> v3
 
 欢迎提交 Issue 和 Pull Request！
 
+## ✨ 贡献者
+
+<a href="https://github.com/aiyuekuang"><img src="https://github.com/aiyuekuang.png" width="50" style="border-radius:50%" /></a>
+<a href="https://github.com/shay-wong"><img src="https://github.com/shay-wong.png" width="50" style="border-radius:50%" /></a>
+
 ## 📄 许可证
 
 MIT License
