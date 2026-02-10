@@ -142,6 +142,19 @@
           "minimum": 10,
           "maximum": 500,
           "description": "%config.timeline.maxNodes.description%"
+        },
+        "recode.autoAddGitignore": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.autoAddGitignore.description%"
+        },
+        "recode.gitignoreVariants": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [".gitignore", ".gitignore_local", ".gitignore.local"],
+          "description": "%config.gitignoreVariants.description%"
         }
       }
     },

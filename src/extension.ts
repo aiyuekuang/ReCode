@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
+import { execFile } from 'child_process';
 import { ReCode } from './database';
 import { FileWatcher } from './watcher';
 import { HistoryViewProvider } from './historyView';
@@ -280,7 +282,7 @@ async function initWorkspace(folder: vscode.WorkspaceFolder) {
   const workspaceRoot = folder.uri.fsPath;
   
   // 确保 .recode 在 .gitignore 中
-  ensureGitignore(workspaceRoot);
+  await ensureGitignore(workspaceRoot);
   
   // 初始化数据库
   const db = new ReCode(workspaceRoot);
@@ -301,31 +303,185 @@ async function initWorkspace(folder: vscode.WorkspaceFolder) {
 }
 
 /**
- * 确保 .recode 在 .gitignore 中
+ * 执行 git 命令（使用 execFile 避免命令注入）
  */
-function ensureGitignore(workspaceRoot: string) {
-  const gitignorePath = path.join(workspaceRoot, '.gitignore');
+function execGit(args: string[], cwd?: string): Promise<string> {
+  return new Promise((resolve) => {
+    execFile('git', args, { cwd }, (error, stdout) => {
+      if (error) {
+        resolve('');
+      } else {
+        resolve(stdout.trim());
+      }
+    });
+  });
+}
+
+/**
+ * 解析路径中的 ~ 为用户主目录
+ */
+function resolveHomePath(filePath: string): string {
+  if (filePath.startsWith('~')) {
+    return path.join(os.homedir(), filePath.slice(1));
+  }
+  return filePath;
+}
+
+/**
+ * 获取 Git 全局忽略文件路径
+ */
+async function getGlobalGitignorePath(): Promise<string | null> {
+  // 1. 尝试从 git config 获取
+  const configPath = await execGit(['config', '--global', 'core.excludesFile']);
+  
+  if (configPath) {
+    const resolvedPath = resolveHomePath(configPath);
+    if (fs.existsSync(resolvedPath)) {
+      return resolvedPath;
+    }
+  }
+  
+  // 2. 回退到 XDG 路径
+  const xdgConfigHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
+  const xdgPath = path.join(xdgConfigHome, 'git', 'ignore');
+  if (fs.existsSync(xdgPath)) {
+    return xdgPath;
+  }
+  
+  // 3. Windows 默认路径
+  if (process.platform === 'win32') {
+    const winPath = path.join(os.homedir(), 'git', 'ignore');
+    if (fs.existsSync(winPath)) {
+      return winPath;
+    }
+  }
+  
+  // 4. 常见的自定义路径
+  const globalIgnorePath = path.join(os.homedir(), '.gitignore_global');
+  if (fs.existsSync(globalIgnorePath)) {
+    return globalIgnorePath;
+  }
+  
+  return null;
+}
+
+/**
+ * 获取 Git 仓库根目录
+ */
+async function getGitRepoRoot(workspaceRoot: string): Promise<string | null> {
+  const repoRoot = await execGit(['rev-parse', '--show-toplevel'], workspaceRoot);
+  return repoRoot || null;
+}
+
+/**
+ * 获取仓库级别的 core.excludesFile 配置
+ */
+async function getLocalGitignorePath(workspaceRoot: string): Promise<string | null> {
+  const configPath = await execGit(['config', '--local', 'core.excludesFile'], workspaceRoot);
+  
+  if (configPath) {
+    const resolvedPath = resolveHomePath(configPath);
+    if (fs.existsSync(resolvedPath)) {
+      return resolvedPath;
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * 检查文件内容是否包含指定条目（支持常见 gitignore 等价形式）
+ */
+function fileContainsEntry(filePath: string, entry: string): boolean {
+  try {
+    if (!fs.existsSync(filePath)) {
+      return false;
+    }
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const lines = content.split('\n').map(l => l.trim());
+    const variants = [entry, `/${entry}`, `${entry}/`, `**/${entry}`];
+    return lines.some(line => variants.includes(line));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 检查目录下 .gitignore 变体文件是否包含指定条目
+ */
+function checkGitignoreVariantsInDir(dir: string, entry: string): string | null {
+  const config = vscode.workspace.getConfiguration('recode');
+  const variants = config.get<string[]>('gitignoreVariants', ['.gitignore', '.gitignore_local', '.gitignore.local']);
+  
+  try {
+    for (const variant of variants) {
+      const variantPath = path.join(dir, variant);
+      if (fs.existsSync(variantPath) && fs.statSync(variantPath).isFile()) {
+        if (fileContainsEntry(variantPath, entry)) {
+          return variant;
+        }
+      }
+    }
+  } catch {
+    // 目录不存在或无法读取
+  }
+  return null;
+}
+
+/**
+ * 确保 .recode 在 .gitignore 中
+ * 检查顺序: 全局 gitignore -> 仓库级 excludesFile -> 仓库根目录 .gitignore* -> 添加到仓库根目录 .gitignore
+ */
+async function ensureGitignore(workspaceRoot: string): Promise<void> {
+  const config = vscode.workspace.getConfiguration('recode');
+  const autoAdd = config.get<boolean>('autoAddGitignore', true);
+  
+  if (!autoAdd) {
+    console.log('ReCode: Auto-add gitignore is disabled');
+    return;
+  }
+  
   const entry = '.recode';
   
   try {
+    // Step 1: 检查全局 gitignore
+    const globalIgnorePath = await getGlobalGitignorePath();
+    if (globalIgnorePath && fileContainsEntry(globalIgnorePath, entry)) {
+      console.log('ReCode: .recode already in global gitignore, skipping');
+      return;
+    }
+    
+    // Step 2: 检查仓库级别的 core.excludesFile
+    const localIgnorePath = await getLocalGitignorePath(workspaceRoot);
+    if (localIgnorePath && fileContainsEntry(localIgnorePath, entry)) {
+      console.log('ReCode: .recode already in local excludesFile, skipping');
+      return;
+    }
+    
+    // 确定目标目录：优先仓库根目录，否则工作区目录
+    const repoRoot = await getGitRepoRoot(workspaceRoot);
+    const targetDir = repoRoot || workspaceRoot;
+    
+    // Step 3: 检查目标目录的 .gitignore* 变体文件
+    const foundVariant = checkGitignoreVariantsInDir(targetDir, entry);
+    if (foundVariant) {
+      console.log(`ReCode: .recode already in ${foundVariant}, skipping`);
+      return;
+    }
+    
+    // Step 4: 添加到目标目录的 .gitignore
+    const gitignorePath = path.join(targetDir, '.gitignore');
     let content = '';
     
     if (fs.existsSync(gitignorePath)) {
       content = fs.readFileSync(gitignorePath, 'utf-8');
-      
-      // 检查是否已存在
-      const lines = content.split('\n').map(l => l.trim());
-      if (lines.includes(entry)) {
-        return; // 已存在，无需添加
-      }
     }
     
-    // 添加 .recode 到 .gitignore
-    const separator = content && !content.endsWith('\n') ? '\n' : '';
-    const newContent = content + separator + '\n# ReCode local database\n' + entry + '\n';
+    const separator = content ? (content.endsWith('\n') ? '' : '\n') + '\n' : '';
+    const newContent = content + separator + '# ReCode local database\n' + entry + '\n';
     fs.writeFileSync(gitignorePath, newContent);
     
-    console.log('ReCode: Added .recode to .gitignore');
+    console.log(`ReCode: Added .recode to ${gitignorePath}`);
   } catch (error) {
     console.error('ReCode: Failed to update .gitignore:', error);
   }
