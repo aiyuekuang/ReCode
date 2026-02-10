@@ -2,7 +2,7 @@
   "name": "recode",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "0.1.13",
+  "version": "0.1.16",
   "publisher": "aiyuekuang",
   "icon": "images/icon.png",
   "repository": {

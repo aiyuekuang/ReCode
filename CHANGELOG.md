@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.16] - 2026-02-10
+
+### Added
+- 🔍 智能 gitignore 检测 - 多层检测全局/仓库级/变体 gitignore 文件，避免重复添加
+- 🔧 新配置项 `recode.autoAddGitignore` - 控制是否自动添加 .recode 到 gitignore
+- 🔧 新配置项 `recode.gitignoreVariants` - 自定义 gitignore 变体文件白名单
+- 📊 时间轴视图和搜索统计功能
+
+### Fixed
+- 修复目录模式匹配逻辑
+
+### Security
+- 使用 `execFile` 替代 `exec` 避免命令注入风险
+
 ## [0.1.4] - 2026-01-28
 
 ### Added
